@@ -1,5 +1,7 @@
 # Contributing to ICT-MT5
 
+Thanks for helping improve ICT-MT5. External contributions are welcome, especially fixes, documentation upgrades, backtest notes, and module refinements.
+
 All contributions must be submitted as pull requests to the `main` branch.
 
 ## Pull Request Process
@@ -10,6 +12,7 @@ All contributions must be submitted as pull requests to the `main` branch.
 4. Update README.md to reflect any new files or architectural changes
 5. Run a backtest with your changes before submitting the PR
 6. All PRs require a description explaining the change and its rationale
+7. If your change improves ICT logic, include a short note on why it is better than the previous version
 
 ## Code Standards
 
@@ -27,3 +30,5 @@ All contributions must be submitted as pull requests to the `main` branch.
 - `ICT_SignalGenerator.mqh` is the aggregator — references all other modules
 - `ICT_EA.mq5` is the only file that references everything — it is the entry point
 - Kill Zones are a hard filter — setting `ICT_UseKillZoneOnly = false` still requires KZ active by default
+
+If you're contributing from outside the core project, keep the changes small and focused. Clean pull requests beat heroic spaghetti every time.

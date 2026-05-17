@@ -83,7 +83,7 @@ private:
     bool IsEqualHigh(int index, int lookback) {
         if(index < lookback) return false;
         double high1 = iHigh(m_symbol, m_timeframe, index);
-        double tolerance = high1 * Point() * 10; // 10 pip tolerance
+        double tolerance = high1 * _Point * 10; // 10 pip tolerance
 
         for(int i = index - 1; i >= index - lookback && i >= 0; i--) {
             double high2 = iHigh(m_symbol, m_timeframe, i);
@@ -96,7 +96,7 @@ private:
     bool IsEqualLow(int index, int lookback) {
         if(index < lookback) return false;
         double low1 = iLow(m_symbol, m_timeframe, index);
-        double tolerance = low1 * Point() * 10;
+        double tolerance = low1 * _Point * 10;
 
         for(int i = index - 1; i >= index - lookback && i >= 0; i--) {
             double low2 = iLow(m_symbol, m_timeframe, i);
@@ -158,7 +158,7 @@ public:
                 // Check if pool already exists at this level
                 bool exists = false;
                 for(int j = 0; j < ArraySize(m_pools); j++) {
-                    if(MathAbs(m_pools[j].price - price) < price * Point() * 20) {
+                    if(MathAbs(m_pools[j].price - price) < price * _Point * 20) {
                         m_pools[j].touches++;
                         m_pools[j].strength = MathMin(10, m_pools[j].strength + 1);
                         exists = true;
@@ -190,7 +190,7 @@ public:
 
                 bool exists = false;
                 for(int j = 0; j < ArraySize(m_pools); j++) {
-                    if(MathAbs(m_pools[j].price - price) < price * Point() * 20) {
+                    if(MathAbs(m_pools[j].price - price) < price * _Point * 20) {
                         m_pools[j].touches++;
                         m_pools[j].strength = MathMin(10, m_pools[j].strength + 1);
                         exists = true;
@@ -289,7 +289,7 @@ public:
         int strength = 0;
         for(int i = 0; i < ArraySize(m_pools); i++) {
             double dist = MathAbs(price - m_pools[i].price);
-            if(dist < price * Point() * 50) { // Within 50 pips
+            if(dist < price * _Point * 50) { // Within 50 pips
                 if(isBullishSetup && (m_pools[i].type == LIQ_SSL || m_pools[i].type == LIQ_EQL))
                     strength += m_pools[i].strength;
                 else if(!isBullishSetup && (m_pools[i].type == LIQ_BSL || m_pools[i].type == LIQ_EQH))

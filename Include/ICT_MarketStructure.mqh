@@ -381,7 +381,7 @@ void CMarketStructure::Refresh() {
     m_refreshCounter = 0;
     
     // Scan last 20 bars for new swing points
-    int totalBars = MathMin(20, iBarTotal(m_symbol, m_timeframe));
+    int totalBars = MathMin(20, iBars(m_symbol, m_timeframe));
     
     for(int i = 0; i < totalBars; i++) {
         DetectSwingHigh(i);
@@ -421,7 +421,7 @@ bool CMarketStructure::IsBearishOnHigher(ENUM_TIMEFRAMES higherTf) {
     double prevHigherLow = iLow(m_symbol, higherTf, 5);
     
     // Bearish confirmation: higher timeframe making lower lows
-    return (lowerLow < prevLowerLow);
+    return (higherLow < prevHigherLow);
 }
 
 //+------------------------------------------------------------------+

@@ -79,7 +79,7 @@ private:
         fvg.size  = nextLow - prevHigh;  // Gap size in points
 
         // Only record meaningful gaps (>= 2 pips for XAUUSD, >= 1 pip for forex)
-        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * Point() : 100 * Point();
+        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * _Point : 100 * _Point;
         if(fvg.size < minGapSize) return false;
 
         int size = ArraySize(m_bullFVGs);
@@ -115,7 +115,7 @@ private:
         fvg.time  = iTime(m_symbol, m_timeframe, midIndex);
         fvg.size  = prevLow - nextHigh;
 
-        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * Point() : 100 * Point();
+        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * _Point : 100 * _Point;
         if(fvg.size < minGapSize) return false;
 
         int size = ArraySize(m_bearFVGs);
@@ -267,7 +267,7 @@ public:
         double avgSize = 0;
 
         for(int i = 0; i < count; i++) {
-            SFairValueGap &f = (ftype == FVG_BULL) ? m_bullFVGs[i] : m_bearFVGs[i];
+            SFairValueGap f = (ftype == FVG_BULL) ? m_bullFVGs[i] : m_bearFVGs[i];
             if(f.state == FVG_OPEN) openCount++;
             else if(f.state == FVG_PARTIAL) partialCount++;
             avgSize += f.size;
@@ -278,7 +278,7 @@ public:
         conf += openCount * 15;         // Open gaps are highest value
         conf += partialCount * 8;        // Partial fills still valid
         conf += MathMin(count * 3, 20);  // More historical FVGs = stronger structure
-        conf += (avgSize > 500 * Point()) ? 10 : 5; // Larger gaps = stronger
+        conf += (avgSize > 500 * _Point) ? 10 : 5; // Larger gaps = stronger
 
         return MathMin(conf, 100);
     }

@@ -65,8 +65,8 @@ CSignalGenerator g_sig;
 //+------------------------------------------------------------------+
 int OnInit() {
     // Initialize all modules
-    g_struct.Init(ICT_Symbol, PERIOD_D1, ICT_Lookback);
-    g_ob.Init(ICT_Symbol, PERIOD_M5, g_struct);
+    g_struct.Init(PERIOD_D1, ICT_Symbol, ICT_Lookback);
+    g_ob.Init(ICT_Symbol, PERIOD_M5, &g_struct);
     g_fvg.Init(ICT_Symbol, PERIOD_M5);
     g_liq.Init(ICT_Symbol, PERIOD_M5, ICT_Lookback);
     g_kz.Init();
@@ -210,15 +210,25 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result) {
     // Track when positions close
-    if(trans.type == TRADE_TRANSACTION_DEAL && trans.entry == DEAL_ENTRY_OUT) {
-        bool isWin = trans.profit > 0;
-        g_rm.RecordTrade(
-            trans.price_open, trans.price_current,
-            trans.sl, trans.tp,
-            trans.volume, isWin,
-            trans.action == TRADE_ACTION_BUY
-        );
-        g_kz.RecordSessionResult(isWin);
+    if(trans.type == TRADE_TRANSACTION_DEAL_ADD && HistoryDealSelect(trans.deal)) {
+        long entryType = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+        if(entryType == DEAL_ENTRY_OUT) {
+            bool isWin = HistoryDealGetDouble(trans.deal, DEAL_PROFIT) > 0.0;
+            double entryPrice = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+            double exitPrice = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+            double stopLoss = HistoryDealGetDouble(trans.deal, DEAL_SL);
+            double takeProfit = HistoryDealGetDouble(trans.deal, DEAL_TP);
+            double volume = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+            bool isBuy = HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY;
+
+            g_rm.RecordTrade(
+                entryPrice, exitPrice,
+                stopLoss, takeProfit,
+                volume, isWin,
+                isBuy
+            );
+            g_kz.RecordSessionResult(isWin);
+        }
     }
 }
 

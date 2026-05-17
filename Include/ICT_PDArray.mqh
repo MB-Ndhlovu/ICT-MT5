@@ -36,12 +36,14 @@ enum ENUM_PD_STATE {
 //| STRUCT: PD Array Zone                                             |
 //+------------------------------------------------------------------+
 struct SPDArrayZone {
-    double         level;       // Price level of this zone
+    double          price;       // Price level of this zone
+    double          level;        // Alias for the same price level
+    string          label;       // Human-readable Fib label
     ENUM_ZONE_TYPE  type;        // Zone classification
-    double         fibRetrace;  // 0.382, 0.500, 0.618, etc.
-    bool           isActive;    // Is price currently in this zone?
-    double         confluence;  // 0-100 confluence score
-    int            toolsCount;  // How many ICT tools agree here
+    double          fibRetrace;  // 0.382, 0.500, 0.618, etc.
+    bool            isActive;    // Is price currently in this zone?
+    double          confluence;  // 0-100 confluence score
+    int             toolsCount;  // How many ICT tools agree here
 };
 
 //+------------------------------------------------------------------+
@@ -150,9 +152,10 @@ public:
             if(!m_fibLevels[i].isKey) continue;
 
             SPDArrayZone z;
-            z.price     = m_fibLevels[i].price;
+            z.price      = m_fibLevels[i].price;
+            z.level      = m_fibLevels[i].price;
+            z.label      = m_fibLevels[i].label;
             z.fibRetrace = m_fibLevels[i].retrace;
-            z.label     = m_fibLevels[i].label;
             z.confluence = CalculateConfluence(m_fibLevels[i].price);
             z.toolsCount = 0;
 

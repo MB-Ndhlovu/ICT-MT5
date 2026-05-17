@@ -28,9 +28,16 @@ An automated trading system based on **ICT (Inner Circle Trader)** methodology �
 ```
 ICT-MT5/
 ├── README.md
+├── CHANGELOG.md
 ├── LICENSE
 ├── AGENTS.md
 ├── PROJECT_PLAN.md
+├── docs/
+│   ├── DEMO_REPORT.md
+│   ├── PITCH.md
+│   └── ict-demo.gif
+├── scripts/
+│   └── demo_generator.py
 ├── Experts/
 │   └── ICT_EA.mq5              ← Main Expert Advisor
 ├── Include/
@@ -42,8 +49,6 @@ ICT-MT5/
 │   ├── ICT_PDArray.mqh         ← ✅ Premium/Discount matrix
 │   ├── ICT_RiskManager.mqh      ← ✅ Position sizing + drawdown
 │   └── ICT_SignalGenerator.mqh  ← ✅ Entry signal aggregator
-└── Scripts/
-    └── Backtest_ICT.mq5         ← Backtesting harness
 ```
 
 ---
@@ -165,10 +170,15 @@ git clone https://github.com/MB-Ndhlovu/ICT-MT5.git
 
 ## Backtesting
 
-Run `Scripts/Backtest_ICT.mq5` in the MT5 Strategy Tester.
-- **Recommended period:** 2020–2026 (multi-market cycle)
-- **Symbols:** XAUUSD, NAS100, US30
-- **Timeframes:** M5 (XAUUSD), H1 (NAS100, US30)
+Use the EA directly in the MT5 Strategy Tester with XAUUSD M5, NAS100 H1, or US30 H1. The repository now includes the demo pipeline in `scripts/demo_generator.py` and the generated walkthrough in `docs/DEMO_REPORT.md`.
+
+---
+
+## Demo
+
+![ICT-MT5 demo](docs/ict-demo.gif)
+
+See `docs/DEMO_REPORT.md` for the generated XAUUSD M5 walkthrough and signal summary.
 
 ---
 

@@ -65,68 +65,73 @@ private:
 
     // Check all 6 conditions for BUY
     bool CheckBuyConditions(double bid, SSignal &sig) {
-        bool c1 = m_pd.GetDailyBias() == PD_BULLISH;           // Daily bias bullish
-        bool c2 = m_pd.IsInDiscountZone(bid);                   // Price in discount
-        bool c3 = m_kz.IsKillZoneActive();                      // Kill zone active
-        bool c4 = m_struct.GetState() == STRUCTURE_BULLISH &&   // Structure bullish
-                  m_struct.GetLastEvent() == EVENT_BULLISH_BOS;
-        bool c5 = m_ob.IsPriceInBullishOBZone(bid) ||           // Bullish OB nearby
-                 m_fvg.IsPriceInBullishFVG(bid);
-        bool c6 = m_liq.GetPoolStrength(bid, true) > 5;       // Liquidity confluence
+        bool c1 = m_pd->GetDailyBias() == PD_BULLISH;           // Daily bias bullish
+        bool c2 = m_pd->IsInDiscountZone(bid);                   // Price in discount
+        bool c3 = m_kz->IsKillZoneActive();                      // Kill zone active
+        bool c4 = m_struct->GetState() == STRUCTURE_BULLISH &&   // Structure bullish
+                  m_struct->GetLastEvent() == EVENT_BULLISH_BOS;
+        bool c5ob = m_ob->IsPriceInBullishOBZone(bid);           // Bullish OB nearby
+        bool c5fvg = m_fvg->IsPriceInBullishFVG(bid);            // Bullish FVG nearby
+        bool c6 = m_liq->GetPoolStrength(bid, true) > 5;         // Liquidity confluence
 
-        sig.pdBiasConfirmed   = c1;
-        sig.kzConfirmed        = c2;
-        sig.bosConfirmed      = c3;
-        sig.obConfirmed       = c4;
-        sig.fvgConfirmed      = c5;
-        sig.liqConfirmed      = c6;
+        sig.pdBiasConfirmed = c1;
+        sig.kzConfirmed     = c3;
+        sig.bosConfirmed    = c4;
+        sig.obConfirmed     = c5ob;
+        sig.fvgConfirmed    = c5fvg;
+        sig.liqConfirmed    = c6;
 
-        return c1 && c2 && c3 && c4 && c5 && c6;
+        return c1 && c2 && c3 && c4 && c5ob && c5fvg && c6;
     }
 
     // Check all 6 conditions for SELL
     bool CheckSellConditions(double ask, SSignal &sig) {
-        bool c1 = m_pd.GetDailyBias() == PD_BEARISH;            // Daily bias bearish
-        bool c2 = m_pd.IsInPremiumZone(ask);                    // Price in premium
-        bool c3 = m_kz.IsKillZoneActive();                     // Kill zone active
-        bool c4 = m_struct.GetState() == STRUCTURE_BEARISH &&  // Structure bearish
-                  m_struct.GetLastEvent() == EVENT_BEARISH_BOS;
-        bool c5 = m_ob.IsPriceInBearishOBZone(ask) ||           // Bearish OB nearby
-                 m_fvg.IsPriceInBearishFVG(ask);
-        bool c6 = m_liq.GetPoolStrength(ask, false) > 5;      // Liquidity confluence
+        bool c1 = m_pd->GetDailyBias() == PD_BEARISH;            // Daily bias bearish
+        bool c2 = m_pd->IsInPremiumZone(ask);                    // Price in premium
+        bool c3 = m_kz->IsKillZoneActive();                     // Kill zone active
+        bool c4 = m_struct->GetState() == STRUCTURE_BEARISH &&  // Structure bearish
+                  m_struct->GetLastEvent() == EVENT_BEARISH_BOS;
+        bool c5ob = m_ob->IsPriceInBearishOBZone(ask);           // Bearish OB nearby
+        bool c5fvg = m_fvg->IsPriceInBearishFVG(ask);            // Bearish FVG nearby
+        bool c6 = m_liq->GetPoolStrength(ask, false) > 5;       // Liquidity confluence
 
-        sig.pdBiasConfirmed   = c1;
-        sig.kzConfirmed      = c2;
-        sig.bosConfirmed      = c3;
-        sig.obConfirmed       = c4;
-        sig.fvgConfirmed     = c5;
-        sig.liqConfirmed     = c6;
+        sig.pdBiasConfirmed = c1;
+        sig.kzConfirmed     = c3;
+        sig.bosConfirmed    = c4;
+        sig.obConfirmed     = c5ob;
+        sig.fvgConfirmed    = c5fvg;
+        sig.liqConfirmed    = c6;
 
-        return c1 && c2 && c3 && c4 && c5 && c6;
+        return c1 && c2 && c3 && c4 && c5ob && c5fvg && c6;
     }
 
     // Calculate composite confidence score
-    int CalcConfidence(bool buyConditions[], int size) {
+    int CalcConfidence(bool conditions[], int size, bool bullish) {
         int passed = 0;
         for(int i = 0; i < size; i++)
-            if(buyConditions[i]) passed++;
+            if(conditions[i]) passed++;
 
         // Base score from conditions passed (6 conditions = 100%)
         int base = (int)((double)passed / size * 60);
 
         // Bonus: FVG confidence
-        int fvgConf = m_fvg.GetFVGConfidence(buyConditions[0] ? FVG_BULL : FVG_BEAR);
+        int fvgConf = m_fvg->GetFVGConfidence(bullish ? FVG_BULL : FVG_BEAR);
         int fvgBonus = (int)((double)fvgConf / 100.0 * 20);
 
         // Bonus: Kill zone probability
-        double kzProb = m_kz.GetSessionProbability();
+        double kzProb = m_kz->GetSessionProbability();
         int kzBonus = (int)(kzProb * 10);
 
         // Bonus: OB efficiency
         int obBonus = 0;
         SOrderBlock ob;
-        if(m_ob.GetNearestBullishOB(SymbolInfoDouble(m_symbol, SYMBOL_BID), ob))
-            obBonus = (int)(ob.efficiency * 10);
+        if(bullish) {
+            if(m_ob->GetNearestBullishOB(SymbolInfoDouble(m_symbol, SYMBOL_BID), ob))
+                obBonus = (int)(ob.efficiency * 10);
+        } else {
+            if(m_ob->GetNearestBearishOB(SymbolInfoDouble(m_symbol, SYMBOL_ASK), ob))
+                obBonus = (int)(ob.efficiency * 10);
+        }
 
         return MathMin(base + fvgBonus + kzBonus + obBonus, 100);
     }
@@ -168,25 +173,25 @@ public:
         sig.entryPrice = 0;
         sig.stopLoss = 0;
         sig.takeProfit = 0;
-        ZeroString(sig.reason);
+        sig.reason = "";
 
         double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
         double ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
 
         // Step 1: Risk check
-        if(!m_rm.CanOpenTrade()) {
+        if(!m_rm->CanOpenTrade()) {
             sig.reason = "Risk manager: trading halted or max losses reached";
             return sig;
         }
 
         // Step 2: Kill Zone check (fast filter — discard outside KZ)
-        if(!m_kz.IsKillZoneActive()) {
+        if(!m_kz->IsKillZoneActive()) {
             sig.reason = "Outside Kill Zone — no trade";
             return sig;
         }
 
         // Step 3: Daily bias check
-        ENUM_PD_STATE bias = m_pd.GetDailyBias();
+        ENUM_PD_STATE bias = m_pd->GetDailyBias();
         if(bias == PD_NEUTRAL) {
             sig.reason = "No daily bias established";
             return sig;
@@ -199,9 +204,9 @@ public:
 
             // Calculate SL: below recent swing low or FVG lower
             double sl = bid - (iHigh(m_symbol, m_execTf, 2) - iLow(m_symbol, m_execTf, 2)) * 0.5;
-            int slPips = m_rm.CalcLotSize(sl) > 0 ? 1 : 50; // Placeholder
-            sig.stopLoss = m_rm.CalcStopLoss(bid, slPips, true);
-            sig.takeProfit = m_rm.CalcTakeProfit(bid, slPips, true, 3.0);
+            int slPips = m_rm->CalcLotSize(sl) > 0 ? 1 : 50; // Placeholder
+            sig.stopLoss = m_rm->CalcStopLoss(bid, slPips, true);
+            sig.takeProfit = m_rm->CalcTakeProfit(bid, slPips, true, 3.0);
             sig.rrRatio = 3.0;
 
             sig.reason = "ICT BUY: Discount + BoS + Kill Zone + OB/FVG";
@@ -209,7 +214,7 @@ public:
             // Step 5: Confidence scoring
             bool checks[6] = {sig.pdBiasConfirmed, sig.kzConfirmed, sig.bosConfirmed,
                              sig.obConfirmed, sig.fvgConfirmed, sig.liqConfirmed};
-            sig.confidence = CalcConfidence(checks, 6);
+            sig.confidence = CalcConfidence(checks, 6, true);
 
             return sig;
         }
@@ -220,16 +225,16 @@ public:
             sig.entryPrice = bid;
 
             double sl = ask + (iHigh(m_symbol, m_execTf, 2) - iLow(m_symbol, m_execTf, 2)) * 0.5;
-            int slPips = m_rm.CalcLotSize(sl) > 0 ? 1 : 50;
-            sig.stopLoss = m_rm.CalcStopLoss(ask, slPips, false);
-            sig.takeProfit = m_rm.CalcTakeProfit(ask, slPips, false, 3.0);
+            int slPips = m_rm->CalcLotSize(sl) > 0 ? 1 : 50;
+            sig.stopLoss = m_rm->CalcStopLoss(ask, slPips, false);
+            sig.takeProfit = m_rm->CalcTakeProfit(ask, slPips, false, 3.0);
             sig.rrRatio = 3.0;
 
             sig.reason = "ICT SELL: Premium + BoS + Kill Zone + OB/FVG";
 
             bool checks[6] = {sig.pdBiasConfirmed, sig.kzConfirmed, sig.bosConfirmed,
                              sig.obConfirmed, sig.fvgConfirmed, sig.liqConfirmed};
-            sig.confidence = CalcConfidence(checks, 6);
+            sig.confidence = CalcConfidence(checks, 6, false);
 
             return sig;
         }
