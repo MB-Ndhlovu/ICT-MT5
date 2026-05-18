@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_LiquidityPools
+Description: Identifies buy-side liquidity, sell-side liquidity, equal highs, and equal lows, then monitors the resulting pools for sweep confirmation and mitigation.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: Native MQL5 price series functions and symbol information functions.
+*/
 #ifndef ICT_LIQUIDITY_POOLS_MQH
 #define ICT_LIQUIDITY_POOLS_MQH
 

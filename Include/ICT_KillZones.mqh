@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_KillZones
+Description: Tracks London and New York kill zones, session state, and one-trade-per-session control so the EA only participates during preferred ICT timing windows.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: Native MQL5 time functions and standard datetime utilities.
+*/
 #ifndef ICT_KILL_ZONES_MQH
 #define ICT_KILL_ZONES_MQH
 

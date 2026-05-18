@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_PDArray
+Description: Builds the premium, discount, and OTE framework from the daily range, calculates Fibonacci confluence, and provides directional bias for the ICT EA.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: ICT_MarketStructure.mqh and native MQL5 price series / symbol information functions.
+*/
 #ifndef ICT_PD_ARRAY_MQH
 #define ICT_PD_ARRAY_MQH
 

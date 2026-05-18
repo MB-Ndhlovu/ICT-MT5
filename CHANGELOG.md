@@ -1,16 +1,30 @@
 # Changelog
 
-All notable changes to this project will be documented here.
+All notable changes to this project are tracked here.
 
-## [Unreleased]
+## Commit History
+
+| Commit | Date | Message |
+|---|---|---|
+| `74b254c` | 2026-05-18 | Harden ICT MT5 EA readiness |
+| `1833305` | 2026-05-18 | Complete ICT MQL5 modules and EA plumbing |
+| `b2735c3` | 2026-05-17 | chore: polish ICT MT5 portfolio package |
+| `5978d75` | 2026-05-17 | feat: complete ICT MT5 EA — all 8 modules + main EA |
+
+## Recent Documentation Work
+
+- Standardised module headers across the `Include/` library.
+- Expanded the README with installation steps, module descriptions, inputs, and roadmap.
+- Added backtesting and methodology notes for portfolio review.
+- Refreshed the root project guidance in `AGENTS.md`.
+
+## Unreleased
 
 ### Added
-- Portfolio demo generator for synthetic XAUUSD M5 OHLCV data
-- Demo report workflow in `docs/DEMO_REPORT.md`
-- One-page project summary in `docs/PITCH.md`
-- README demo section with GIF preview
+- `docs/BACKTEST_GUIDE.md`
+- `docs/ICT_METHODOLOGY.md`
 
-### Improved
-- ICT module wiring and trade transaction handling
-- Documentation clarity for contributors and reviewers
-- GitHub repository description optimised for discoverability
+### Updated
+- `README.md`
+- `AGENTS.md`
+- All `.mqh` module headers in `Include/`

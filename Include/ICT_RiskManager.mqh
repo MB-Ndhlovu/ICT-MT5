@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_RiskManager
+Description: Manages pip sizing, lot sizing, daily loss caps, drawdown state, and trade history so every entry respects the project's fixed risk rules.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: Native MQL5 account, symbol, and trade history functions.
+*/
 #ifndef ICT_RISK_MANAGER_MQH
 #define ICT_RISK_MANAGER_MQH
 

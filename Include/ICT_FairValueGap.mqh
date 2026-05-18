@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_FairValueGap
+Description: Detects three-candle fair value gaps, measures fill progress, and tracks whether gaps remain open, partially filled, filled, widened, or mitigated.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: Native MQL5 price series functions (iBars, iHigh, iLow, iClose, iTime, SymbolInfoDouble, SymbolInfoInteger).
+*/
 #ifndef ICT_FAIR_VALUE_GAP_MQH
 #define ICT_FAIR_VALUE_GAP_MQH
 

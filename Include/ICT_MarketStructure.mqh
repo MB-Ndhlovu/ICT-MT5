@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_MarketStructure
+Description: Detects swing highs and lows, Break of Structure, Change of Character, and higher-timeframe bias alignment for the ICT EA. This module is the structural foundation for all downstream ICT logic.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: Native MQL5 price series functions (iBars, iHigh, iLow, iOpen, iClose, iTime, SymbolInfoDouble, SymbolInfoInteger).
+*/
 #ifndef ICT_MARKET_STRUCTURE_MQH
 #define ICT_MARKET_STRUCTURE_MQH
 

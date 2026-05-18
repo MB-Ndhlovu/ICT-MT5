@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_SignalGenerator
+Description: Aggregates market structure, order blocks, FVGs, liquidity, kill zones, premium/discount logic, and risk checks into a final buy, sell, or no-trade decision with confidence scoring.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: ICT_MarketStructure.mqh, ICT_OrderBlocks.mqh, ICT_FairValueGap.mqh, ICT_LiquidityPools.mqh, ICT_KillZones.mqh, ICT_PDArray.mqh, and ICT_RiskManager.mqh.
+*/
 #ifndef ICT_SIGNAL_GENERATOR_MQH
 #define ICT_SIGNAL_GENERATOR_MQH
 

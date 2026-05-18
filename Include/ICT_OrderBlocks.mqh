@@ -1,3 +1,12 @@
+/*
+Project: ICT-MT5
+Module: ICT_OrderBlocks
+Description: Detects bullish and bearish order blocks from displacement and structure events, then tracks each zone through pending, active, weakening, and broken states for confluence in the ICT EA.
+Author: Malibongwe Ndhlovu
+Supervisor: Malibongwe Ndhlovu
+Date: 2026-05-18
+Dependencies: ICT_MarketStructure.mqh and native MQL5 price series / symbol functions.
+*/
 #ifndef ICT_ORDER_BLOCKS_MQH
 #define ICT_ORDER_BLOCKS_MQH
 
