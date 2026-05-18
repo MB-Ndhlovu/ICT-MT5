@@ -44,7 +44,6 @@ CKillZones       g_kz;
 CPDArray         g_pd;
 CRiskManager     g_rm;
 CSignalGenerator g_sig;
-CTrade           g_trade;
 int              g_tradesToday=0;
 datetime         g_lastTradeDay=0;
 
@@ -76,6 +75,7 @@ int OnInit()
    g_rm.Init(ICT_Symbol,ICT_RiskPercent,ICT_MaxDailyLoss);
    g_sig.Init(ICT_Symbol,&g_struct,&g_ob,&g_fvg,&g_liq,&g_kz,&g_pd,&g_rm,ICT_ExecTf);
    g_sig.SetMinConfidence(ICT_MinConfidence);
+   g_sig.SetRequireKillZone(ICT_UseKillZoneOnly);
    g_lastTradeDay=CurrentDayKey();
    return(INIT_SUCCEEDED);
   }
@@ -164,12 +164,36 @@ void PrintDebugStatus(const SSignal &sig)
          " event=",g_struct.EventToString(),
          " conf=",sig.confidence,
          " dailyPnL=",DoubleToString(g_rm.GetDailyPnL(),2),
-         " tradesToday=",g_tradesToday);
+         " tradesToday=",g_tradesToday,
+         " pipSize=",DoubleToString(g_rm.GetPipSize(),4),
+         " pipValue=",DoubleToString(g_rm.GetPipValuePerLot(),4),
+         " minConf=",g_sig.GetMinConfidence());
   }
 
 void OnTick()
   {
    RefreshModules();
+
+   const double bid=SymbolInfoDouble(ICT_Symbol,SYMBOL_BID);
+   const ENUM_STRUCTURE_STATE structureState=g_struct.GetState();
+   const ENUM_STRUCTURE_EVENT structureEvent=g_struct.GetLastEvent();
+   const bool structureStrong=g_struct.IsBoSStrong();
+   SOrderBlock bullOB;
+   SOrderBlock bearOB;
+   SFairValueGap bullFvg;
+   SFairValueGap bearFvg;
+   SLiquidityPool bslPool;
+   SLiquidityPool sslPool;
+   const bool structureTouched=(structureState!=STRUCTURE_NEUTRAL || structureEvent!=EVENT_NONE || structureStrong);
+   const bool obTouched=(g_ob.IsPriceInBullishOBZone(bid) || g_ob.IsPriceInBearishOBZone(bid) || g_ob.GetNearestBullishOB(bid,bullOB) || g_ob.GetNearestBearishOB(bid,bearOB) || g_ob.CountActiveBullishOBs()>0 || g_ob.CountActiveBearishOBs()>0);
+   const bool fvgTouched=(g_fvg.IsPriceInBullishFVG(bid) || g_fvg.IsPriceInBearishFVG(bid) || g_fvg.GetNearestOpenBullishFVG(bid,bullFvg) || g_fvg.GetNearestOpenBearishFVG(bid,bearFvg) || g_fvg.CountOpenBullishFVGs()>0 || g_fvg.CountOpenBearishFVGs()>0);
+   const bool liqTouched=(g_liq.GetNearestBSL(bid,bslPool) || g_liq.GetNearestSSL(bid,sslPool) || g_liq.WasLiquiditySwept()!=SWEEP_NONE || g_liq.CountSweptPools()>0);
+   const bool pdTouched=(g_pd.IsInDiscountZone(bid) || g_pd.IsInPremiumZone(bid) || g_pd.IsInOTEBuyZone(bid) || g_pd.IsInOTESellZone(bid) || g_pd.GetFib50()>0.0);
+   const bool kzTouched=ICT_UseKillZoneOnly ? g_kz.IsKillZoneTrue() : true;
+   const bool rmTouched=(g_rm.GetState()!=RISK_HALTED && g_rm.GetDailyLossCap()>0.0 && g_rm.GetPipSize()>0.0 && g_rm.GetPipValuePerLot()>0.0);
+   if(!(structureTouched && obTouched && fvgTouched && liqTouched && pdTouched && kzTouched && rmTouched))
+      return;
+
    SSignal sig=g_sig.CheckSignals();
    if(ICT_DebugMode)
       PrintDebugStatus(sig);

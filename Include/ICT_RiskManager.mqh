@@ -45,20 +45,31 @@ private:
 
    double PipSize(const string symbol) const
      {
-      const int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
       const double point=SymbolInfoDouble(symbol,SYMBOL_POINT);
+      const int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
+      if(StringFind(symbol,"XAU")>=0)
+         return MathMax(point*10.0,0.1);
+      if(StringFind(symbol,"NAS")>=0 || StringFind(symbol,"US30")>=0 || StringFind(symbol,"US 30")>=0 || StringFind(symbol,"DJ")>=0 || StringFind(symbol,"USTEC")>=0)
+         return MathMax(point,1.0);
       return ((digits==3 || digits==5) ? point*10.0 : point);
      }
 
    double PipValuePerLot(const string symbol) const
      {
+      const double pipSize=PipSize(symbol);
       const double tickValue=SymbolInfoDouble(symbol,SYMBOL_TRADE_TICK_VALUE);
       const double tickSize=SymbolInfoDouble(symbol,SYMBOL_TRADE_TICK_SIZE);
-      const double pipSize=PipSize(symbol);
       if(tickValue>0.0 && tickSize>0.0)
          return tickValue*(pipSize/tickSize);
-      if(StringFind(symbol,"XAU")>=0) return 1.0;
-      if(StringFind(symbol,"NAS")>=0 || StringFind(symbol,"US")>=0) return 1.0;
+
+      const double contractSize=SymbolInfoDouble(symbol,SYMBOL_TRADE_CONTRACT_SIZE);
+      if(contractSize>0.0)
+         return contractSize*pipSize;
+
+      if(StringFind(symbol,"XAU")>=0)
+         return 10.0;
+      if(StringFind(symbol,"NAS")>=0 || StringFind(symbol,"US30")>=0 || StringFind(symbol,"US 30")>=0 || StringFind(symbol,"DJ")>=0 || StringFind(symbol,"USTEC")>=0)
+         return 1.0;
       return 1.0;
      }
 
@@ -189,7 +200,8 @@ public:
       t.openTime=TimeCurrent();
       t.closeTime=TimeCurrent();
       t.symbol=m_symbol;
-      const double riskAmount=MathAbs(entry-sl)*m_pipValue*(lots>0.0 ? lots : 1.0);
+      const double stopLossPips=MathAbs(entry-sl)/MathMax(PipSize(m_symbol),_Point);
+      const double riskAmount=stopLossPips*m_pipValue*(lots>0.0 ? lots : 1.0);
       t.riskAmount=riskAmount;
       t.pnl=isWin ? riskAmount*3.0 : -riskAmount;
       const int size=ArraySize(m_tradeHistory);
@@ -206,6 +218,8 @@ public:
    double GetDailyPnL() const { return m_dailyPnL; }
    double GetEquity() const { return m_accountEquity; }
    double GetRiskPercent() const { return m_riskPercent; }
+   double GetPipSize() const { return PipSize(m_symbol); }
+   double GetPipValuePerLot() const { return m_pipValue; }
    void ForceDailyReset()
      {
       m_lastResetDate=0;

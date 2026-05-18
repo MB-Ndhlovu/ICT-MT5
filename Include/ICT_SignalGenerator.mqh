@@ -47,6 +47,22 @@ private:
    string            m_symbol;
    ENUM_TIMEFRAMES   m_execTf;
    int               m_minConfidence;
+   bool              m_requireKillZone;
+
+   double PipSize() const
+     {
+      if(m_rm!=NULL)
+         return m_rm->GetPipSize();
+      if(m_symbol=="")
+         return 0.0;
+      const double point=SymbolInfoDouble(m_symbol,SYMBOL_POINT);
+      const int digits=(int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS);
+      if(StringFind(m_symbol,"XAU")>=0)
+         return MathMax(point*10.0,0.1);
+      if(StringFind(m_symbol,"NAS")>=0 || StringFind(m_symbol,"US30")>=0 || StringFind(m_symbol,"US 30")>=0 || StringFind(m_symbol,"DJ")>=0 || StringFind(m_symbol,"USTEC")>=0)
+         return MathMax(point,1.0);
+      return ((digits==3 || digits==5) ? point*10.0 : point);
+     }
 
    bool BuyRule1() const { return (m_pd!=NULL && m_pd->GetDailyBias()==PD_BULLISH); }
    bool SellRule1() const { return (m_pd!=NULL && m_pd->GetDailyBias()==PD_BEARISH); }
@@ -104,6 +120,9 @@ private:
 
    double StopBuffer() const
      {
+      const double pipSize=PipSize();
+      if(pipSize>0.0)
+         return pipSize*2.0;
       if(m_symbol=="") return 0.0;
       return SymbolInfoDouble(m_symbol,SYMBOL_POINT)*20.0;
      }
@@ -121,6 +140,7 @@ public:
          m_symbol="";
          m_execTf=PERIOD_M5;
          m_minConfidence=60;
+         m_requireKillZone=true;
         }
 
    void Init(const string symbol,CMarketStructure *structure,COrderBlocks *ob,CFairValueGap *fvg,CLiquidityPools *liq,CKillZones *kz,CPDArray *pd,CRiskManager *rm,const ENUM_TIMEFRAMES execTf=PERIOD_M5)
@@ -134,6 +154,11 @@ public:
       m_pd=pd;
       m_rm=rm;
       m_execTf=execTf;
+     }
+
+   void SetRequireKillZone(const bool requireKillZone)
+     {
+      m_requireKillZone=requireKillZone;
      }
 
    SSignal CheckSignals()
@@ -165,16 +190,30 @@ public:
         }
       sig.riskConfirmed=true;
 
-      if(m_kz==NULL || !m_kz->IsKillZoneTrue())
+      if(m_requireKillZone)
         {
-         sig.reason="Outside kill zone";
-         return sig;
+         if(m_kz==NULL || !m_kz->IsKillZoneTrue())
+           {
+            sig.reason="Outside kill zone";
+            return sig;
+           }
+         sig.kzConfirmed=true;
         }
-      sig.kzConfirmed=true;
+      else
+        {
+         sig.kzConfirmed=(m_kz!=NULL && m_kz->IsKillZoneTrue());
+        }
 
       if(m_pd==NULL || m_pd->GetDailyBias()==PD_NEUTRAL)
         {
          sig.reason="No daily bias";
+         return sig;
+        }
+
+      const double pipSize=PipSize();
+      if(pipSize<=0.0)
+        {
+         sig.reason="Unsupported pip size";
          return sig;
         }
 
@@ -203,7 +242,7 @@ public:
          const double swingLow=(m_struct!=NULL ? m_struct->GetSwingLow() : 0.0);
          const double fallbackSL=(m_fvg!=NULL ? (m_fvg->IsPriceInBullishFVG(price) ? price-StopBuffer()*2.0 : price-StopBuffer()*3.0) : price-StopBuffer()*3.0);
          sig.stopLoss=(swingLow>0.0 ? MathMin(swingLow-StopBuffer(),fallbackSL) : fallbackSL);
-         const double riskPips=MathAbs(sig.entryPrice-sig.stopLoss)/(SymbolInfoDouble(m_symbol,SYMBOL_POINT)*((int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==3 || (int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==5 ? 10.0 : 1.0));
+         const double riskPips=MathAbs(sig.entryPrice-sig.stopLoss)/pipSize;
          sig.takeProfit=m_rm->CalcTakeProfit(sig.entryPrice,(int)MathMax(1.0,riskPips),true,3.0);
          sig.rrRatio=3.0;
          sig.confidence=ClampConfidence(RuleScore(buyR1,buyR2,buyR3,buyR4,buyR5,buyR6)+BoostScore(true,price));
@@ -223,7 +262,7 @@ public:
          const double swingHigh=(m_struct!=NULL ? m_struct->GetSwingHigh() : 0.0);
          const double fallbackSL=(m_fvg!=NULL ? (m_fvg->IsPriceInBearishFVG(price) ? price+StopBuffer()*2.0 : price+StopBuffer()*3.0) : price+StopBuffer()*3.0);
          sig.stopLoss=(swingHigh>0.0 ? MathMax(swingHigh+StopBuffer(),fallbackSL) : fallbackSL);
-         const double riskPips=MathAbs(sig.stopLoss-sig.entryPrice)/(SymbolInfoDouble(m_symbol,SYMBOL_POINT)*((int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==3 || (int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==5 ? 10.0 : 1.0));
+         const double riskPips=MathAbs(sig.stopLoss-sig.entryPrice)/pipSize;
          sig.takeProfit=m_rm->CalcTakeProfit(sig.entryPrice,(int)MathMax(1.0,riskPips),false,3.0);
          sig.rrRatio=3.0;
          sig.confidence=ClampConfidence(RuleScore(sellR1,sellR2,sellR3,sellR4,sellR5,sellR6)+BoostScore(false,price));
