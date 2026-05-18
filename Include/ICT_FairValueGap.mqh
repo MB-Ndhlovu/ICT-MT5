@@ -1,290 +1,330 @@
-//+------------------------------------------------------------------+
-//|  ICT Fair Value Gap Module                                        |
-//|  File: ICT_FairValueGap.mqh                                       |
-//|  Author: Malibongwe Ndhlovu                                       |
-//|  Supervisor: Ben JARVIS AI                                        |
-//|  Date: 2026-05-17                                                 |
-//+------------------------------------------------------------------+
-
 #ifndef ICT_FAIR_VALUE_GAP_MQH
 #define ICT_FAIR_VALUE_GAP_MQH
 
-//+------------------------------------------------------------------+
-//| ENUM: FVG Type                                                    |
-//+------------------------------------------------------------------+
-enum ENUM_FVG_TYPE {
-    FVG_BULL,   // Bullish FVG — upward gap (buy)
-    FVG_BEAR,   // Bearish FVG — downward gap (sell)
-    FVG_NONE    // No FVG
-};
+enum ENUM_FVG_TYPE
+  {
+   FVG_BULL=0,
+   FVG_BEAR=1,
+   FVG_NONE=2
+  };
 
-//+------------------------------------------------------------------+
-//| ENUM: FVG State                                                   |
-//+------------------------------------------------------------------+
-enum ENUM_FVG_STATE {
-    FVG_OPEN,      // Gap not yet filled — highest probability
-    FVG_PARTIAL,   // Price partially filled the gap
-    FVG_FILLED,    // Gap fully filled — no longer valid
-    FVG_WIDENING   // Gap growing — strong momentum continuation
-};
+enum ENUM_FVG_STATE
+  {
+   FVG_OPEN=0,
+   FVG_PARTIAL=1,
+   FVG_FILLED=2,
+   FVG_WIDENING=3,
+   FVG_MITIGATED=4
+  };
 
-//+------------------------------------------------------------------+
-//| STRUCT: Fair Value Gap                                            |
-//+------------------------------------------------------------------+
-struct SFairValueGap {
-    double  upper;       // Top boundary of the gap
-    double  lower;       // Bottom boundary of the gap
-    int     index;       // Bar index of the middle candle (gap center)
-    ENUM_FVG_TYPE type; // Bullish or Bearish
-    ENUM_FVG_STATE state;
-    double  fillRatio;   // 0 = unfilled, 1 = fully filled
-    datetime time;       // Formation time
-    double  size;        // Gap size in points
-};
+struct SFairValueGap
+  {
+   double          upper;
+   double          lower;
+   int             index;
+   ENUM_FVG_TYPE   type;
+   ENUM_FVG_STATE  state;
+   double          fillRatio;
+   datetime        time;
+   double          size;
+   bool            mitigated;
+   bool            widened;
+  };
 
-//+------------------------------------------------------------------+
-//| CLASS: CFairValueGap                                              |
-//+------------------------------------------------------------------+
-class CFairValueGap {
+class CFairValueGap
+  {
 private:
-    string        m_symbol;
-    ENUM_TIMEFRAMES m_timeframe;
-    int           m_maxFVGs;
-    SFairValueGap m_bullFVGs[];
-    SFairValueGap m_bearFVGs[];
+   string            m_symbol;
+   ENUM_TIMEFRAMES   m_timeframe;
+   int               m_maxFVGs;
+   SFairValueGap     m_bullFVGs[];
+   SFairValueGap     m_bearFVGs[];
+   datetime          m_lastBarTime;
 
-    // Detect a bullish FVG at index (the middle candle of the 3-candle pattern)
-    // Pattern: candle[i+1] is bullish, candle[i+1] high > candle[i-1] low (gap up)
-    bool DetectBullishFVG(int midIndex) {
-        // Need at least 3 bars: i-1 (bearish), i (bullish mid), i+1 (bullish continuation)
-        if(midIndex < 2 || midIndex >= iBars(m_symbol, m_timeframe) - 1)
+   bool SeenBefore(const bool bullish,const double upper,const double lower) const
+     {
+      if(bullish)
+        {
+         for(int i=0;i<ArraySize(m_bullFVGs);i++)
+            if(MathAbs(m_bullFVGs[i].upper-upper)<=_Point*2.0 && MathAbs(m_bullFVGs[i].lower-lower)<=_Point*2.0)
+               return true;
+        }
+      else
+        {
+         for(int i=0;i<ArraySize(m_bearFVGs);i++)
+            if(MathAbs(m_bearFVGs[i].upper-upper)<=_Point*2.0 && MathAbs(m_bearFVGs[i].lower-lower)<=_Point*2.0)
+               return true;
+        }
+      return false;
+     }
+
+   double SymbolMinGap() const
+     {
+      const double point=SymbolInfoDouble(m_symbol,SYMBOL_POINT);
+      const int digits=(int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS);
+      if(StringFind(m_symbol,"XAU")>=0) return 30.0*point;
+      if(StringFind(m_symbol,"NAS")>=0 || StringFind(m_symbol,"US")>=0) return 20.0*point;
+      return (digits==3 || digits==5) ? 10.0*point : 5.0*point;
+     }
+
+   void Trim(SFairValueGap &arr[])
+     {
+      while(ArraySize(arr)>m_maxFVGs)
+        {
+         for(int i=0;i<ArraySize(arr)-1;i++)
+            arr[i]=arr[i+1];
+         ArrayResize(arr,ArraySize(arr)-1);
+        }
+     }
+
+   bool DetectAt(const int midIndex,const bool bullish)
+     {
+      const int bars=iBars(m_symbol,m_timeframe);
+      if(midIndex<1 || midIndex+1>=bars)
+         return false;
+
+      const int left=midIndex+1;
+      const int right=midIndex-1;
+      const double leftHigh=iHigh(m_symbol,m_timeframe,left);
+      const double leftLow=iLow(m_symbol,m_timeframe,left);
+      const double rightHigh=iHigh(m_symbol,m_timeframe,right);
+      const double rightLow=iLow(m_symbol,m_timeframe,right);
+
+      SFairValueGap fvg;
+      fvg.index=midIndex;
+      fvg.time=iTime(m_symbol,m_timeframe,midIndex);
+      fvg.fillRatio=0.0;
+      fvg.state=FVG_OPEN;
+      fvg.mitigated=false;
+      fvg.widened=false;
+
+      if(bullish)
+        {
+         if(rightLow<=leftHigh)
             return false;
-
-        double prevLow  = iLow(m_symbol, m_timeframe, midIndex + 1);
-        double prevHigh = iHigh(m_symbol, m_timeframe, midIndex + 1);
-        double nextHigh = iHigh(m_symbol, m_timeframe, midIndex - 1);
-        double nextLow  = iLow(m_symbol, m_timeframe, midIndex - 1);
-
-        // Bullish FVG: next candle's low is ABOVE previous candle's high (gap up)
-        if(nextLow <= prevHigh) return false; // No gap
-
-        SFairValueGap fvg;
-        fvg.upper = prevHigh;            // Top = upper wick of previous candle
-        fvg.lower = nextLow;             // Bottom = low of current candle
-        fvg.index = midIndex;
-        fvg.type  = FVG_BULL;
-        fvg.state = FVG_OPEN;
-        fvg.fillRatio = 0.0;
-        fvg.time  = iTime(m_symbol, m_timeframe, midIndex);
-        fvg.size  = nextLow - prevHigh;  // Gap size in points
-
-        // Only record meaningful gaps (>= 2 pips for XAUUSD, >= 1 pip for forex)
-        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * _Point : 100 * _Point;
-        if(fvg.size < minGapSize) return false;
-
-        int size = ArraySize(m_bullFVGs);
-        ArrayResize(m_bullFVGs, size + 1);
-        m_bullFVGs[size] = fvg;
-
-        if(ArraySize(m_bullFVGs) > m_maxFVGs)
-            ArrayResize(m_bullFVGs, m_maxFVGs);
-
-        return true;
-    }
-
-    // Detect a bearish FVG
-    bool DetectBearishFVG(int midIndex) {
-        if(midIndex < 2 || midIndex >= iBars(m_symbol, m_timeframe) - 1)
+         fvg.upper=rightLow;
+         fvg.lower=leftHigh;
+         fvg.type=FVG_BULL;
+        }
+      else
+        {
+         if(rightHigh>=leftLow)
             return false;
-
-        double prevLow  = iLow(m_symbol, m_timeframe, midIndex + 1);
-        double prevHigh = iHigh(m_symbol, m_timeframe, midIndex + 1);
-        double nextHigh = iHigh(m_symbol, m_timeframe, midIndex - 1);
-        double nextLow  = iLow(m_symbol, m_timeframe, midIndex - 1);
-
-        // Bearish FVG: next candle's high is BELOW previous candle's low (gap down)
-        if(nextHigh >= prevLow) return false;
-
-        SFairValueGap fvg;
-        fvg.upper = nextHigh;
-        fvg.lower = prevLow;
-        fvg.index = midIndex;
-        fvg.type  = FVG_BEAR;
-        fvg.state = FVG_OPEN;
-        fvg.fillRatio = 0.0;
-        fvg.time  = iTime(m_symbol, m_timeframe, midIndex);
-        fvg.size  = prevLow - nextHigh;
-
-        double minGapSize = (StringFind(m_symbol, "XAU") >= 0) ? 200 * _Point : 100 * _Point;
-        if(fvg.size < minGapSize) return false;
-
-        int size = ArraySize(m_bearFVGs);
-        ArrayResize(m_bearFVGs, size + 1);
-        m_bearFVGs[size] = fvg;
-
-        if(ArraySize(m_bearFVGs) > m_maxFVGs)
-            ArrayResize(m_bearFVGs, m_maxFVGs);
-
-        return true;
-    }
-
-    // Update fill ratio based on current price
-    void UpdateFVGStates(double bid, double ask) {
-        for(int i = 0; i < ArraySize(m_bullFVGs); i++) {
-            if(m_bullFVGs[i].state == FVG_FILLED || m_bullFVGs[i].state == FVG_WIDENING)
-                continue;
-
-            // Check if price is filling the gap
-            double fillStart = m_bullFVGs[i].upper; // Gap top (where price came from)
-            double fillEnd   = m_bullFVGs[i].lower; // Gap bottom (where price went to)
-
-            if(bid <= fillEnd) {
-                // Fully filled
-                m_bullFVGs[i].state     = FVG_FILLED;
-                m_bullFVGs[i].fillRatio = 1.0;
-            } else if(bid < fillStart && bid > fillEnd) {
-                // Partially filled
-                m_bullFVGs[i].state     = FVG_PARTIAL;
-                m_bullFVGs[i].fillRatio = (fillStart - bid) / m_bullFVGs[i].size;
-            }
-            // If bid > upper = widening (gap growing)
-            else if(bid > fillStart)
-                m_bullFVGs[i].state = FVG_WIDENING;
+         fvg.upper=leftLow;
+         fvg.lower=rightHigh;
+         fvg.type=FVG_BEAR;
         }
 
-        for(int i = 0; i < ArraySize(m_bearFVGs); i++) {
-            if(m_bearFVGs[i].state == FVG_FILLED || m_bearFVGs[i].state == FVG_WIDENING)
-                continue;
+      fvg.size=MathAbs(fvg.upper-fvg.lower);
+      if(fvg.size<SymbolMinGap())
+         return false;
+      if(SeenBefore(bullish,fvg.upper,fvg.lower))
+         return false;
 
-            double fillStart = m_bearFVGs[i].lower; // Gap bottom
-            double fillEnd   = m_bearFVGs[i].upper; // Gap top
-
-            if(ask >= fillEnd) {
-                m_bearFVGs[i].state     = FVG_FILLED;
-                m_bearFVGs[i].fillRatio = 1.0;
-            } else if(ask > fillStart && ask < fillEnd) {
-                m_bearFVGs[i].state     = FVG_PARTIAL;
-                m_bearFVGs[i].fillRatio = (ask - fillStart) / m_bearFVGs[i].size;
-            } else if(ask < fillStart)
-                m_bearFVGs[i].state = FVG_WIDENING;
+      if(bullish)
+        {
+         const int size=ArraySize(m_bullFVGs);
+         ArrayResize(m_bullFVGs,size+1);
+         m_bullFVGs[size]=fvg;
+         Trim(m_bullFVGs);
         }
-    }
+      else
+        {
+         const int size=ArraySize(m_bearFVGs);
+         ArrayResize(m_bearFVGs,size+1);
+         m_bearFVGs[size]=fvg;
+         Trim(m_bearFVGs);
+        }
+      return true;
+     }
+
+   void UpdateArray(SFairValueGap &arr[],const double price)
+     {
+      for(int i=0;i<ArraySize(arr);i++)
+        {
+         SFairValueGap &fvg=arr[i];
+         if(fvg.state==FVG_FILLED || fvg.state==FVG_MITIGATED)
+            continue;
+
+         if(price>fvg.upper)
+           {
+            fvg.widened=true;
+            fvg.state=FVG_WIDENING;
+           }
+
+         const double span=MathAbs(fvg.upper-fvg.lower);
+         if(span<=0.0)
+            continue;
+
+         if(price>=fvg.lower && price<=fvg.upper)
+           {
+            if(fvg.type==FVG_BULL)
+              {
+               const double filled=fvg.upper-price;
+               fvg.fillRatio=MathMax(fvg.fillRatio,MathMax(0.0,MathMin(1.0,filled/span)));
+              }
+            else
+              {
+               const double filled=price-fvg.lower;
+               fvg.fillRatio=MathMax(fvg.fillRatio,MathMax(0.0,MathMin(1.0,filled/span)));
+              }
+            fvg.state=(fvg.fillRatio>=0.999 ? FVG_FILLED : FVG_PARTIAL);
+           }
+         else if((fvg.type==FVG_BULL && price<=fvg.lower) || (fvg.type==FVG_BEAR && price>=fvg.upper))
+           {
+            fvg.fillRatio=1.0;
+            fvg.state=FVG_MITIGATED;
+            fvg.mitigated=true;
+           }
+        }
+     }
 
 public:
-    CFairValueGap() {
-        m_maxFVGs = 15;
-    }
-
-    void Init(string symbol, ENUM_TIMEFRAMES timeframe) {
-        m_symbol    = symbol;
-        m_timeframe = timeframe;
-        ArrayResize(m_bullFVGs, 0);
-        ArrayResize(m_bearFVGs, 0);
-    }
-
-    void Refresh(int lookback = 30) {
-        double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
-        double ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
-
-        for(int i = 1; i <= lookback && i < iBars(m_symbol, m_timeframe) - 1; i++) {
-            // The gap center is at bar i — check for FVGs around this bar
-            DetectBullishFVG(i);
-            DetectBearishFVG(i);
+               CFairValueGap()
+        {
+         m_symbol="";
+         m_timeframe=PERIOD_CURRENT;
+         m_maxFVGs=15;
+         m_lastBarTime=0;
         }
 
-        UpdateFVGStates(bid, ask);
-    }
+   void Init(const string symbol,const ENUM_TIMEFRAMES timeframe)
+     {
+      m_symbol=symbol;
+      m_timeframe=timeframe;
+      ArrayResize(m_bullFVGs,0);
+      ArrayResize(m_bearFVGs,0);
+     }
 
-    // Get nearest open bullish FVG below current price
-    bool GetNearestOpenBullishFVG(double price, SFairValueGap &fvg) {
-        double minDist = DBL_MAX;
-        bool found = false;
-
-        for(int i = 0; i < ArraySize(m_bullFVGs); i++) {
-            if(m_bullFVGs[i].state == FVG_FILLED) continue;
-            // Bullish FVG should be below price for buy setup
-            if(m_bullFVGs[i].upper >= price) continue;
-
-            double dist = price - m_bullFVGs[i].upper;
-            if(dist < minDist) {
-                minDist = dist;
-                fvg = m_bullFVGs[i];
-                found = true;
-            }
+   void Refresh(const int lookback=30)
+     {
+      const datetime barTime=iTime(m_symbol,m_timeframe,0);
+      if(barTime==0) return;
+      const double bid=SymbolInfoDouble(m_symbol,SYMBOL_BID);
+      if(barTime!=m_lastBarTime)
+        {
+         m_lastBarTime=barTime;
+         const int bars=iBars(m_symbol,m_timeframe);
+         const int limit=MathMin(lookback,bars-3);
+         for(int i=1;i<=limit;i++)
+           {
+            DetectAt(i,true);
+            DetectAt(i,false);
+           }
         }
-        return found;
-    }
+      UpdateArray(m_bullFVGs,bid);
+      UpdateArray(m_bearFVGs,bid);
+     }
 
-    // Get nearest open bearish FVG above current price
-    bool GetNearestOpenBearishFVG(double price, SFairValueGap &fvg) {
-        double minDist = DBL_MAX;
-        bool found = false;
-
-        for(int i = 0; i < ArraySize(m_bearFVGs); i++) {
-            if(m_bearFVGs[i].state == FVG_FILLED) continue;
-            // Bearish FVG should be above price for sell setup
-            if(m_bearFVGs[i].lower <= price) continue;
-
-            double dist = m_bearFVGs[i].lower - price;
-            if(dist < minDist) {
-                minDist = dist;
-                fvg = m_bearFVGs[i];
-                found = true;
-            }
+   bool GetNearestOpenBullishFVG(const double price,SFairValueGap &fvg) const
+     {
+      double bestDist=DBL_MAX;
+      bool found=false;
+      for(int i=0;i<ArraySize(m_bullFVGs);i++)
+        {
+         const SFairValueGap &candidate=m_bullFVGs[i];
+         if(candidate.state==FVG_FILLED || candidate.state==FVG_MITIGATED)
+            continue;
+         if(candidate.upper>=price)
+            continue;
+         const double dist=price-candidate.upper;
+         if(dist<bestDist)
+           {
+            bestDist=dist;
+            fvg=candidate;
+            found=true;
+           }
         }
-        return found;
-    }
+      return found;
+     }
 
-    // Check if price is inside any open FVG
-    bool IsPriceInBullishFVG(double price) {
-        for(int i = 0; i < ArraySize(m_bullFVGs); i++) {
-            if(m_bullFVGs[i].state == FVG_OPEN || m_bullFVGs[i].state == FVG_PARTIAL) {
-                if(price >= m_bullFVGs[i].lower && price <= m_bullFVGs[i].upper)
-                    return true;
-            }
+   bool GetNearestOpenBearishFVG(const double price,SFairValueGap &fvg) const
+     {
+      double bestDist=DBL_MAX;
+      bool found=false;
+      for(int i=0;i<ArraySize(m_bearFVGs);i++)
+        {
+         const SFairValueGap &candidate=m_bearFVGs[i];
+         if(candidate.state==FVG_FILLED || candidate.state==FVG_MITIGATED)
+            continue;
+         if(candidate.lower<=price)
+            continue;
+         const double dist=candidate.lower-price;
+         if(dist<bestDist)
+           {
+            bestDist=dist;
+            fvg=candidate;
+            found=true;
+           }
         }
-        return false;
-    }
+      return found;
+     }
 
-    bool IsPriceInBearishFVG(double price) {
-        for(int i = 0; i < ArraySize(m_bearFVGs); i++) {
-            if(m_bearFVGs[i].state == FVG_OPEN || m_bearFVGs[i].state == FVG_PARTIAL) {
-                if(price >= m_bearFVGs[i].lower && price <= m_bearFVGs[i].upper)
-                    return true;
-            }
+   bool IsPriceInBullishFVG(const double price) const
+     {
+      for(int i=0;i<ArraySize(m_bullFVGs);i++)
+         if(m_bullFVGs[i].state!=FVG_FILLED && m_bullFVGs[i].state!=FVG_MITIGATED && price>=m_bullFVGs[i].lower && price<=m_bullFVGs[i].upper)
+            return true;
+      return false;
+     }
+
+   bool IsPriceInBearishFVG(const double price) const
+     {
+      for(int i=0;i<ArraySize(m_bearFVGs);i++)
+         if(m_bearFVGs[i].state!=FVG_FILLED && m_bearFVGs[i].state!=FVG_MITIGATED && price>=m_bearFVGs[i].lower && price<=m_bearFVGs[i].upper)
+            return true;
+      return false;
+     }
+
+   int GetFVGConfidence(const ENUM_FVG_TYPE ftype) const
+     {
+      const int count=(ftype==FVG_BULL ? ArraySize(m_bullFVGs) : ArraySize(m_bearFVGs));
+      if(count==0)
+         return 0;
+      int score=20;
+      int openCount=0;
+      int mitigatedCount=0;
+      double avgSize=0.0;
+      if(ftype==FVG_BULL)
+        {
+         for(int i=0;i<ArraySize(m_bullFVGs);i++)
+           {
+            if(m_bullFVGs[i].state==FVG_OPEN) openCount++;
+            if(m_bullFVGs[i].state==FVG_MITIGATED) mitigatedCount++;
+            avgSize+=m_bullFVGs[i].size;
+           }
         }
-        return false;
-    }
-
-    // Confidence score for FVG setup (0-100)
-    int GetFVGConfidence(ENUM_FVG_TYPE ftype) {
-        SFairValueGap fvgs[];
-        int count = (ftype == FVG_BULL) ? ArraySize(m_bullFVGs) : ArraySize(m_bearFVGs);
-        if(count == 0) return 0;
-
-        int openCount = 0;
-        int partialCount = 0;
-        double avgSize = 0;
-
-        for(int i = 0; i < count; i++) {
-            SFairValueGap f = (ftype == FVG_BULL) ? m_bullFVGs[i] : m_bearFVGs[i];
-            if(f.state == FVG_OPEN) openCount++;
-            else if(f.state == FVG_PARTIAL) partialCount++;
-            avgSize += f.size;
+      else
+        {
+         for(int i=0;i<ArraySize(m_bearFVGs);i++)
+           {
+            if(m_bearFVGs[i].state==FVG_OPEN) openCount++;
+            if(m_bearFVGs[i].state==FVG_MITIGATED) mitigatedCount++;
+            avgSize+=m_bearFVGs[i].size;
+           }
         }
-        avgSize /= count;
+      avgSize/=count;
+      score+=openCount*10;
+      score+=MathMax(0,10-mitigatedCount*2);
+      score+=((avgSize>=SymbolMinGap()*2.0) ? 15 : 5);
+      return MathMin(100,score);
+     }
 
-        int conf = 30; // Base
-        conf += openCount * 15;         // Open gaps are highest value
-        conf += partialCount * 8;        // Partial fills still valid
-        conf += MathMin(count * 3, 20);  // More historical FVGs = stronger structure
-        conf += (avgSize > 500 * _Point) ? 10 : 5; // Larger gaps = stronger
+   int CountOpenBullishFVGs() const
+     {
+      int c=0;
+      for(int i=0;i<ArraySize(m_bullFVGs);i++)
+         if(m_bullFVGs[i].state==FVG_OPEN || m_bullFVGs[i].state==FVG_PARTIAL || m_bullFVGs[i].state==FVG_WIDENING) c++;
+      return c;
+     }
 
-        return MathMin(conf, 100);
-    }
-};
+   int CountOpenBearishFVGs() const
+     {
+      int c=0;
+      for(int i=0;i<ArraySize(m_bearFVGs);i++)
+         if(m_bearFVGs[i].state==FVG_OPEN || m_bearFVGs[i].state==FVG_PARTIAL || m_bearFVGs[i].state==FVG_WIDENING) c++;
+      return c;
+     }
+  };
 
-#endif // ICT_FAIR_VALUE_GAP_MQH
-//+------------------------------------------------------------------+
-//| END: ICT_FairValueGap.mqh                                         |
-//+------------------------------------------------------------------+
+#endif

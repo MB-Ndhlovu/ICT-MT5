@@ -1,306 +1,286 @@
-//+------------------------------------------------------------------+
-//|  ICT Liquidity Pools Module                                       |
-//|  File: ICT_LiquidityPools.mqh                                     |
-//|  Author: Malibongwe Ndhlovu                                       |
-//|  Supervisor: Ben JARVIS AI                                        |
-//|  Date: 2026-05-17                                                 |
-//+------------------------------------------------------------------+
-
 #ifndef ICT_LIQUIDITY_POOLS_MQH
 #define ICT_LIQUIDITY_POOLS_MQH
 
-//+------------------------------------------------------------------+
-//| ENUM: Liquidity Type                                              |
-//+------------------------------------------------------------------+
-enum ENUM_LIQ_TYPE {
-    LIQ_BSL,   // Buy-Side Liquidity — swing highs (institutional sell stops)
-    LIQ_SSL,   // Sell-Side Liquidity — swing lows (institutional buy stops)
-    LIQ_EQH,   // Equal Highs — same level liquidity
-    LIQ_EQL    // Equal Lows — same level liquidity
-};
+enum ENUM_LIQ_TYPE
+  {
+   LIQ_BSL=0,
+   LIQ_SSL=1,
+   LIQ_EQH=2,
+   LIQ_EQL=3
+  };
 
-//+------------------------------------------------------------------+
-//| ENUM: Sweep State                                                 |
-//+------------------------------------------------------------------+
-enum ENUM_SWEEP_STATE {
-    SWEEP_NONE,       // No sweep detected
-    SWEEP_DETECTED,   // Sweep confirmed, reversal likely
-    SWEEP_CONFIRMED   // Price returned and confirmed entry
-};
+enum ENUM_SWEEP_STATE
+  {
+   SWEEP_NONE=0,
+   SWEEP_DETECTED=1,
+   SWEEP_CONFIRMED=2
+  };
 
-//+------------------------------------------------------------------+
-//| STRUCT: Liquidity Pool                                            |
-//+------------------------------------------------------------------+
-struct SLiquidityPool {
-    double         price;        // Level of the liquidity pool
-    ENUM_LIQ_TYPE  type;         // BSL, SSL, EQH, EQL
-    int            strength;     // 1-10 strength rating
-    int            barIndex;     // When it was formed
-    datetime       time;
-    int            touches;       // How many times price approached
-    bool           isSwept;       // Whether pool has been swept
-    double         sweepVolume;  // Volume at the sweep
-    ENUM_SWEEP_STATE state;
-};
+struct SLiquidityPool
+  {
+   double         price;
+   ENUM_LIQ_TYPE  type;
+   int            strength;
+   int            barIndex;
+   datetime       time;
+   int            touches;
+   bool           isSwept;
+   double         sweepVolume;
+   ENUM_SWEEP_STATE state;
+   bool           mitigated;
+  };
 
-//+------------------------------------------------------------------+
-//| CLASS: CLiquidityPools                                            |
-//+------------------------------------------------------------------+
-class CLiquidityPools {
+class CLiquidityPools
+  {
 private:
-    string          m_symbol;
-    ENUM_TIMEFRAMES m_timeframe;
-    int             m_maxPools;
-    SLiquidityPool  m_pools[];
-    int             m_lookback;
+   string          m_symbol;
+   ENUM_TIMEFRAMES m_timeframe;
+   int             m_maxPools;
+   int             m_lookback;
+   double          m_tolerancePoints;
+   SLiquidityPool  m_pools[];
+   datetime        m_lastBarTime;
 
-    // Find swing highs/lows using pivot method
-    bool IsSwingHigh(int index, int lookback) {
-        if(index < lookback || index >= iBars(m_symbol, m_timeframe) - lookback)
+   bool IsSwingHigh(const int index,const int lookback) const
+     {
+      const int bars=iBars(m_symbol,m_timeframe);
+      if(index<lookback || index>=bars-lookback) return false;
+      const double high=iHigh(m_symbol,m_timeframe,index);
+      for(int i=1;i<=lookback;i++)
+         if(iHigh(m_symbol,m_timeframe,index-i)>=high || iHigh(m_symbol,m_timeframe,index+i)>=high)
             return false;
+      return true;
+     }
 
-        double high = iHigh(m_symbol, m_timeframe, index);
-        for(int i = 1; i <= lookback; i++) {
-            if(iHigh(m_symbol, m_timeframe, index - i) >= high) return false;
-            if(iHigh(m_symbol, m_timeframe, index + i) >= high) return false;
-        }
-        return true;
-    }
-
-    bool IsSwingLow(int index, int lookback) {
-        if(index < lookback || index >= iBars(m_symbol, m_timeframe) - lookback)
+   bool IsSwingLow(const int index,const int lookback) const
+     {
+      const int bars=iBars(m_symbol,m_timeframe);
+      if(index<lookback || index>=bars-lookback) return false;
+      const double low=iLow(m_symbol,m_timeframe,index);
+      for(int i=1;i<=lookback;i++)
+         if(iLow(m_symbol,m_timeframe,index-i)<=low || iLow(m_symbol,m_timeframe,index+i)<=low)
             return false;
+      return true;
+     }
 
-        double low = iLow(m_symbol, m_timeframe, index);
-        for(int i = 1; i <= lookback; i++) {
-            if(iLow(m_symbol, m_timeframe, index - i) <= low) return false;
-            if(iLow(m_symbol, m_timeframe, index + i) <= low) return false;
+   bool IsEqualHigh(const int index,const int lookback,const double tolerance) const
+     {
+      const double high=iHigh(m_symbol,m_timeframe,index);
+      for(int i=index-1;i>=MathMax(0,index-lookback);i--)
+         if(MathAbs(high-iHigh(m_symbol,m_timeframe,i))<=tolerance)
+            return true;
+      return false;
+     }
+
+   bool IsEqualLow(const int index,const int lookback,const double tolerance) const
+     {
+      const double low=iLow(m_symbol,m_timeframe,index);
+      for(int i=index-1;i>=MathMax(0,index-lookback);i--)
+         if(MathAbs(low-iLow(m_symbol,m_timeframe,i))<=tolerance)
+            return true;
+      return false;
+     }
+
+   int FindPoolIndex(const double price,const ENUM_LIQ_TYPE type) const
+     {
+      for(int i=0;i<ArraySize(m_pools);i++)
+         if(m_pools[i].type==type && MathAbs(m_pools[i].price-price)<=m_tolerancePoints*_Point)
+            return i;
+      return -1;
+     }
+
+   void AddOrUpdatePool(const double price,const ENUM_LIQ_TYPE type,const int barIndex)
+     {
+      const int idx=FindPoolIndex(price,type);
+      if(idx>=0)
+        {
+         m_pools[idx].touches++;
+         m_pools[idx].strength=MathMin(10,m_pools[idx].strength+1);
+         return;
         }
-        return true;
-    }
 
-    // Detect equal highs / equal lows within tolerance
-    bool IsEqualHigh(int index, int lookback) {
-        if(index < lookback) return false;
-        double high1 = iHigh(m_symbol, m_timeframe, index);
-        double tolerance = high1 * _Point * 10; // 10 pip tolerance
-
-        for(int i = index - 1; i >= index - lookback && i >= 0; i--) {
-            double high2 = iHigh(m_symbol, m_timeframe, i);
-            if(MathAbs(high1 - high2) <= tolerance)
-                return true;
+      SLiquidityPool pool;
+      pool.price=price;
+      pool.type=type;
+      pool.strength=5;
+      pool.barIndex=barIndex;
+      pool.time=iTime(m_symbol,m_timeframe,barIndex);
+      pool.touches=1;
+      pool.isSwept=false;
+      pool.sweepVolume=0.0;
+      pool.state=SWEEP_NONE;
+      pool.mitigated=false;
+      const int size=ArraySize(m_pools);
+      ArrayResize(m_pools,size+1);
+      m_pools[size]=pool;
+      while(ArraySize(m_pools)>m_maxPools)
+        {
+         for(int i=0;i<ArraySize(m_pools)-1;i++) m_pools[i]=m_pools[i+1];
+         ArrayResize(m_pools,ArraySize(m_pools)-1);
         }
-        return false;
-    }
+     }
 
-    bool IsEqualLow(int index, int lookback) {
-        if(index < lookback) return false;
-        double low1 = iLow(m_symbol, m_timeframe, index);
-        double tolerance = low1 * _Point * 10;
+   ENUM_SWEEP_STATE DetectSweepForPool(const SLiquidityPool &pool,const double bid,const double closePrice) const
+     {
+      const double sweepAllowance=MathMax(_Point*m_tolerancePoints,MathAbs(pool.price)*0.0001);
+      if((pool.type==LIQ_BSL || pool.type==LIQ_EQH) && bid>pool.price+sweepAllowance && closePrice<pool.price)
+         return SWEEP_CONFIRMED;
+      if((pool.type==LIQ_SSL || pool.type==LIQ_EQL) && bid<pool.price-sweepAllowance && closePrice>pool.price)
+         return SWEEP_CONFIRMED;
+      if((pool.type==LIQ_BSL || pool.type==LIQ_EQH) && bid>pool.price+sweepAllowance*0.5)
+         return SWEEP_DETECTED;
+      if((pool.type==LIQ_SSL || pool.type==LIQ_EQL) && bid<pool.price-sweepAllowance*0.5)
+         return SWEEP_DETECTED;
+      return SWEEP_NONE;
+     }
 
-        for(int i = index - 1; i >= index - lookback && i >= 0; i--) {
-            double low2 = iLow(m_symbol, m_timeframe, i);
-            if(MathAbs(low1 - low2) <= tolerance)
-                return true;
+   void UpdatePools()
+     {
+      const double bid=SymbolInfoDouble(m_symbol,SYMBOL_BID);
+      const double closePrice=iClose(m_symbol,m_timeframe,1);
+      for(int i=0;i<ArraySize(m_pools);i++)
+        {
+         SLiquidityPool &pool=m_pools[i];
+         if(pool.isSwept)
+           {
+            if(MathAbs(closePrice-pool.price)<=_Point*m_tolerancePoints)
+               pool.mitigated=true;
+            continue;
+           }
+
+         const ENUM_SWEEP_STATE sweep=DetectSweepForPool(pool,bid,closePrice);
+         if(sweep==SWEEP_CONFIRMED)
+           {
+            pool.state=SWEEP_CONFIRMED;
+            pool.isSwept=true;
+            pool.sweepVolume=iVolume(m_symbol,m_timeframe,1);
+           }
+         else if(sweep==SWEEP_DETECTED)
+           {
+            pool.state=SWEEP_DETECTED;
+           }
         }
-        return false;
-    }
-
-    // Detect liquidity sweep — price spikes beyond a pool then reverses
-    ENUM_SWEEP_STATE DetectSweep(double price, double high, double low) {
-        // Sweep condition: price goes beyond key level (high/low) then reverses
-        double range = high - low;
-        double threshold = range * 0.001; // 0.1% spike threshold
-
-        if(price > high + threshold && price < high + range * 0.005)
-            return SWEEP_DETECTED; // Swept BSL
-        if(price < low - threshold && price > low - range * 0.005)
-            return SWEEP_DETECTED; // Swept SSL
-
-        return SWEEP_NONE;
-    }
+     }
 
 public:
-    CLiquidityPools() {
-        m_maxPools  = 20;
-        m_lookback  = 5;
-    }
-
-    void Init(string symbol, ENUM_TIMEFRAMES timeframe, int lookback = 5) {
-        m_symbol    = symbol;
-        m_timeframe = timeframe;
-        m_lookback  = lookback;
-        ArrayResize(m_pools, 0);
-    }
-
-    void Refresh() {
-        double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
-        int totalBars = iBars(m_symbol, m_timeframe);
-
-        // Scan for BSL (swing highs) and SSL (swing lows)
-        for(int i = m_lookback; i >= 2 && i < totalBars - m_lookback; i--) {
-            // Check for new swing high = potential BSL
-            if(IsSwingHigh(i, m_lookback)) {
-                double price = iHigh(m_symbol, m_timeframe, i);
-                // Check if this is also an equal high
-                ENUM_LIQ_TYPE ltype = IsEqualHigh(i, m_lookback * 2) ? LIQ_EQH : LIQ_BSL;
-
-                SLiquidityPool pool;
-                pool.price   = price;
-                pool.type    = ltype;
-                pool.barIndex = i;
-                pool.time    = iTime(m_symbol, m_timeframe, i);
-                pool.strength = 5;
-                pool.touches = 1;
-                pool.isSwept = false;
-                pool.state   = SWEEP_NONE;
-
-                // Check if pool already exists at this level
-                bool exists = false;
-                for(int j = 0; j < ArraySize(m_pools); j++) {
-                    if(MathAbs(m_pools[j].price - price) < price * _Point * 20) {
-                        m_pools[j].touches++;
-                        m_pools[j].strength = MathMin(10, m_pools[j].strength + 1);
-                        exists = true;
-                        break;
-                    }
-                }
-
-                if(!exists) {
-                    int size = ArraySize(m_pools);
-                    ArrayResize(m_pools, size + 1);
-                    m_pools[size] = pool;
-                }
-            }
-
-            // Check for new swing low = potential SSL
-            if(IsSwingLow(i, m_lookback)) {
-                double price = iLow(m_symbol, m_timeframe, i);
-                ENUM_LIQ_TYPE ltype = IsEqualLow(i, m_lookback * 2) ? LIQ_EQL : LIQ_SSL;
-
-                SLiquidityPool pool;
-                pool.price   = price;
-                pool.type    = ltype;
-                pool.barIndex = i;
-                pool.time    = iTime(m_symbol, m_timeframe, i);
-                pool.strength = 5;
-                pool.touches = 1;
-                pool.isSwept = false;
-                pool.state   = SWEEP_NONE;
-
-                bool exists = false;
-                for(int j = 0; j < ArraySize(m_pools); j++) {
-                    if(MathAbs(m_pools[j].price - price) < price * _Point * 20) {
-                        m_pools[j].touches++;
-                        m_pools[j].strength = MathMin(10, m_pools[j].strength + 1);
-                        exists = true;
-                        break;
-                    }
-                }
-
-                if(!exists) {
-                    int size = ArraySize(m_pools);
-                    ArrayResize(m_pools, size + 1);
-                    m_pools[size] = pool;
-                }
-            }
+               CLiquidityPools()
+        {
+         m_symbol="";
+         m_timeframe=PERIOD_CURRENT;
+         m_maxPools=20;
+         m_lookback=5;
+         m_tolerancePoints=20.0;
+         m_lastBarTime=0;
+         ArrayResize(m_pools,0);
         }
 
-        // Update sweep detection
-        double high = iHigh(m_symbol, m_timeframe, 1);
-        double low  = iLow(m_symbol, m_timeframe, 1);
-        for(int i = 0; i < ArraySize(m_pools); i++) {
-            if(m_pools[i].isSwept) continue;
+   void Init(const string symbol,const ENUM_TIMEFRAMES timeframe,const int lookback=5)
+     {
+      m_symbol=symbol;
+      m_timeframe=timeframe;
+      m_lookback=MathMax(2,lookback);
+      ArrayResize(m_pools,0);
+     }
 
-            ENUM_SWEEP_STATE sweep = DetectSweep(bid, m_pools[i].price, m_pools[i].price);
-            if(sweep == SWEEP_DETECTED) {
-                // Check for reversal confirmation
-                double closePrice = iClose(m_symbol, m_timeframe, 1);
-                if(m_pools[i].type == LIQ_BSL || m_pools[i].type == LIQ_EQH) {
-                    if(closePrice < m_pools[i].price)
-                        m_pools[i].state = SWEEP_CONFIRMED;
-                } else {
-                    if(closePrice > m_pools[i].price)
-                        m_pools[i].state = SWEEP_CONFIRMED;
-                }
-                m_pools[i].isSwept = true;
-            }
+   void Refresh()
+     {
+      const datetime barTime=iTime(m_symbol,m_timeframe,0);
+      if(barTime==0) return;
+      if(barTime!=m_lastBarTime)
+        {
+         m_lastBarTime=barTime;
+         const int bars=iBars(m_symbol,m_timeframe);
+         const int limit=MathMin(bars-m_lookback-1,m_lookback*8);
+         for(int i=m_lookback;i<=limit;i++)
+           {
+            const double tol=MathMax(_Point*10.0,SymbolInfoDouble(m_symbol,SYMBOL_POINT)*20.0);
+            if(IsSwingHigh(i,m_lookback))
+              {
+               const double price=iHigh(m_symbol,m_timeframe,i);
+               AddOrUpdatePool(price,IsEqualHigh(i,m_lookback*2,tol) ? LIQ_EQH : LIQ_BSL,i);
+              }
+            if(IsSwingLow(i,m_lookback))
+              {
+               const double price=iLow(m_symbol,m_timeframe,i);
+               AddOrUpdatePool(price,IsEqualLow(i,m_lookback*2,tol) ? LIQ_EQL : LIQ_SSL,i);
+              }
+           }
         }
+      UpdatePools();
+     }
 
-        // Trim to max pools
-        while(ArraySize(m_pools) > m_maxPools) {
-            for(int i = 0; i < ArraySize(m_pools) - 1; i++)
-                m_pools[i] = m_pools[i + 1];
-            ArrayResize(m_pools, ArraySize(m_pools) - 1);
+   bool GetNearestBSL(const double price,SLiquidityPool &pool) const
+     {
+      double bestDist=DBL_MAX;
+      bool found=false;
+      for(int i=0;i<ArraySize(m_pools);i++)
+        {
+         const SLiquidityPool &candidate=m_pools[i];
+         if(candidate.isSwept) continue;
+         if(candidate.type!=LIQ_BSL && candidate.type!=LIQ_EQH) continue;
+         if(candidate.price<price) continue;
+         const double dist=candidate.price-price;
+         if(dist<bestDist)
+           {
+            bestDist=dist;
+            pool=candidate;
+            found=true;
+           }
         }
-    }
+      return found;
+     }
 
-    // Get nearest unswept BSL above price
-    bool GetNearestBSL(double price, SLiquidityPool &pool) {
-        double minDist = DBL_MAX;
-        bool found = false;
-
-        for(int i = 0; i < ArraySize(m_pools); i++) {
-            if(m_pools[i].type != LIQ_BSL && m_pools[i].type != LIQ_EQH) continue;
-            if(m_pools[i].isSwept) continue;
-            if(m_pools[i].price < price) continue; // Must be above
-
-            double dist = m_pools[i].price - price;
-            if(dist < minDist) {
-                minDist = dist;
-                pool = m_pools[i];
-                found = true;
-            }
+   bool GetNearestSSL(const double price,SLiquidityPool &pool) const
+     {
+      double bestDist=DBL_MAX;
+      bool found=false;
+      for(int i=0;i<ArraySize(m_pools);i++)
+        {
+         const SLiquidityPool &candidate=m_pools[i];
+         if(candidate.isSwept) continue;
+         if(candidate.type!=LIQ_SSL && candidate.type!=LIQ_EQL) continue;
+         if(candidate.price>price) continue;
+         const double dist=price-candidate.price;
+         if(dist<bestDist)
+           {
+            bestDist=dist;
+            pool=candidate;
+            found=true;
+           }
         }
-        return found;
-    }
+      return found;
+     }
 
-    // Get nearest unswept SSL below price
-    bool GetNearestSSL(double price, SLiquidityPool &pool) {
-        double minDist = DBL_MAX;
-        bool found = false;
+   ENUM_SWEEP_STATE WasLiquiditySwept() const
+     {
+      for(int i=0;i<ArraySize(m_pools);i++)
+         if(m_pools[i].state==SWEEP_CONFIRMED)
+            return SWEEP_CONFIRMED;
+      return SWEEP_NONE;
+     }
 
-        for(int i = 0; i < ArraySize(m_pools); i++) {
-            if(m_pools[i].type != LIQ_SSL && m_pools[i].type != LIQ_EQL) continue;
-            if(m_pools[i].isSwept) continue;
-            if(m_pools[i].price > price) continue; // Must be below
-
-            double dist = price - m_pools[i].price;
-            if(dist < minDist) {
-                minDist = dist;
-                pool = m_pools[i];
-                found = true;
-            }
+   int GetPoolStrength(const double price,const bool isBullishSetup) const
+     {
+      int strength=0;
+      for(int i=0;i<ArraySize(m_pools);i++)
+        {
+         const double dist=MathAbs(price-m_pools[i].price);
+         const double threshold=MathMax(_Point*m_tolerancePoints*2.5,_Point*50.0);
+         if(dist>threshold) continue;
+         if(isBullishSetup && (m_pools[i].type==LIQ_SSL || m_pools[i].type==LIQ_EQL))
+            strength+=m_pools[i].strength;
+         if(!isBullishSetup && (m_pools[i].type==LIQ_BSL || m_pools[i].type==LIQ_EQH))
+            strength+=m_pools[i].strength;
         }
-        return found;
-    }
+      return MathMin(30,strength);
+     }
 
-    // Was the last move a liquidity sweep? (returns sweep type or NONE)
-    ENUM_SWEEP_STATE WasLiquiditySwept() {
-        for(int i = 0; i < ArraySize(m_pools); i++) {
-            if(m_pools[i].state == SWEEP_CONFIRMED)
-                return SWEEP_CONFIRMED;
-        }
-        return SWEEP_NONE;
-    }
+   int CountSweptPools() const
+     {
+      int count=0;
+      for(int i=0;i<ArraySize(m_pools);i++) if(m_pools[i].isSwept) count++;
+      return count;
+     }
+  };
 
-    // Get total pool strength at a price level (for confluence scoring)
-    int GetPoolStrength(double price, bool isBullishSetup) {
-        int strength = 0;
-        for(int i = 0; i < ArraySize(m_pools); i++) {
-            double dist = MathAbs(price - m_pools[i].price);
-            if(dist < price * _Point * 50) { // Within 50 pips
-                if(isBullishSetup && (m_pools[i].type == LIQ_SSL || m_pools[i].type == LIQ_EQL))
-                    strength += m_pools[i].strength;
-                else if(!isBullishSetup && (m_pools[i].type == LIQ_BSL || m_pools[i].type == LIQ_EQH))
-                    strength += m_pools[i].strength;
-            }
-        }
-        return MathMin(strength, 30); // Cap at 30 for scoring
-    }
-};
-
-#endif // ICT_LIQUIDITY_POOLS_MQH
-//+------------------------------------------------------------------+
-//| END: ICT_LiquidityPools.mqh                                      |
-//+------------------------------------------------------------------+
+#endif

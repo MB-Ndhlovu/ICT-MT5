@@ -1,11 +1,3 @@
-//+------------------------------------------------------------------+
-//|  ICT Signal Generator Module                                      |
-//|  File: ICT_SignalGenerator.mqh                                    |
-//|  Author: Malibongwe Ndhlovu                                       |
-//|  Supervisor: Ben JARVIS AI                                        |
-//|  Date: 2026-05-17                                                 |
-//+------------------------------------------------------------------+
-
 #ifndef ICT_SIGNAL_GENERATOR_MQH
 #define ICT_SIGNAL_GENERATOR_MQH
 
@@ -17,243 +9,239 @@
 #include <ICT_PDArray.mqh>
 #include <ICT_RiskManager.mqh>
 
-//+------------------------------------------------------------------+
-//| ENUM: Signal Direction                                            |
-//+------------------------------------------------------------------+
-enum ENUM_SIGNAL {
-    SIGNAL_NONE,
-    SIGNAL_BUY,
-    SIGNAL_SELL
-};
+enum ENUM_SIGNAL
+  {
+   SIGNAL_NONE=0,
+   SIGNAL_BUY=1,
+   SIGNAL_SELL=2
+  };
 
-//+------------------------------------------------------------------+
-//| STRUCT: Signal                                                    |
-//+------------------------------------------------------------------+
-struct SSignal {
-    ENUM_SIGNAL  direction;      // BUY or SELL
-    int         confidence;      // 0-100 composite score
-    double      entryPrice;       // Suggested entry
-    double      stopLoss;         // Calculated SL
-    double      takeProfit;       // Calculated TP (3:1 RR)
-    double      rrRatio;          // Actual RR achieved
-    bool        obConfirmed;     // Order block confirmed
-    bool        fvgConfirmed;    // FVG confirmed
-    bool        liqConfirmed;    // Liquidity confirmed
-    bool        kzConfirmed;      // Kill zone active
-    bool        bosConfirmed;     // BoS confirmed
-    bool        pdBiasConfirmed; // PD array bias confirmed
-    string      reason;           // Human-readable reason string
-};
+struct SSignal
+  {
+   ENUM_SIGNAL direction;
+   int         confidence;
+   double      entryPrice;
+   double      stopLoss;
+   double      takeProfit;
+   double      rrRatio;
+   bool        obConfirmed;
+   bool        fvgConfirmed;
+   bool        liqConfirmed;
+   bool        kzConfirmed;
+   bool        bosConfirmed;
+   bool        pdBiasConfirmed;
+   bool        riskConfirmed;
+   string      reason;
+  };
 
-//+------------------------------------------------------------------+
-//| CLASS: CSignalGenerator                                           |
-//+------------------------------------------------------------------+
-class CSignalGenerator {
+class CSignalGenerator
+  {
 private:
-    // Module references
-    CMarketStructure *m_struct;
-    COrderBlocks      *m_ob;
-    CFairValueGap     *m_fvg;
-    CLiquidityPools   *m_liq;
-    CKillZones        *m_kz;
-    CPDArray          *m_pd;
-    CRiskManager      *m_rm;
+   CMarketStructure *m_struct;
+   COrderBlocks     *m_ob;
+   CFairValueGap    *m_fvg;
+   CLiquidityPools  *m_liq;
+   CKillZones       *m_kz;
+   CPDArray         *m_pd;
+   CRiskManager     *m_rm;
+   string            m_symbol;
+   ENUM_TIMEFRAMES   m_execTf;
+   int               m_minConfidence;
 
-    string        m_symbol;
-    ENUM_TIMEFRAMES m_execTf;   // Execution timeframe (M5/M1)
-    int           m_minConfidence; // Minimum confidence to signal
+   bool BuyRule1() const { return (m_pd!=NULL && m_pd->GetDailyBias()==PD_BULLISH); }
+   bool SellRule1() const { return (m_pd!=NULL && m_pd->GetDailyBias()==PD_BEARISH); }
+   bool BuyRule2(const double price) const { return (m_pd!=NULL && m_pd->IsInDiscountZone(price)); }
+   bool SellRule2(const double price) const { return (m_pd!=NULL && m_pd->IsInPremiumZone(price)); }
+   bool BuyRule3() const { return (m_kz!=NULL && m_kz->IsKillZoneTrue()); }
+   bool SellRule3() const { return (m_kz!=NULL && m_kz->IsKillZoneTrue()); }
+   bool BuyRule4() const { return (m_struct!=NULL && m_struct->GetState()==STRUCTURE_BULLISH && (m_struct->GetLastEvent()==EVENT_BULLISH_BOS || m_struct->GetLastEvent()==EVENT_BULLISH_CHOCH)); }
+   bool SellRule4() const { return (m_struct!=NULL && m_struct->GetState()==STRUCTURE_BEARISH && (m_struct->GetLastEvent()==EVENT_BEARISH_BOS || m_struct->GetLastEvent()==EVENT_BEARISH_CHOCH)); }
+   bool BuyRule5(const double price) const
+     {
+      if(m_ob!=NULL && m_ob->IsPriceInBullishOBZone(price)) return true;
+      if(m_fvg!=NULL && m_fvg->IsPriceInBullishFVG(price)) return true;
+      return false;
+     }
+   bool SellRule5(const double price) const
+     {
+      if(m_ob!=NULL && m_ob->IsPriceInBearishOBZone(price)) return true;
+      if(m_fvg!=NULL && m_fvg->IsPriceInBearishFVG(price)) return true;
+      return false;
+     }
+   bool BuyRule6(const double price) const { return (m_liq!=NULL && m_liq->GetPoolStrength(price,true)>=5); }
+   bool SellRule6(const double price) const { return (m_liq!=NULL && m_liq->GetPoolStrength(price,false)>=5); }
 
-    // Check all 6 conditions for BUY
-    bool CheckBuyConditions(double bid, SSignal &sig) {
-        bool c1 = m_pd->GetDailyBias() == PD_BULLISH;           // Daily bias bullish
-        bool c2 = m_pd->IsInDiscountZone(bid);                   // Price in discount
-        bool c3 = m_kz->IsKillZoneActive();                      // Kill zone active
-        bool c4 = m_struct->GetState() == STRUCTURE_BULLISH &&   // Structure bullish
-                  m_struct->GetLastEvent() == EVENT_BULLISH_BOS;
-        bool c5ob = m_ob->IsPriceInBullishOBZone(bid);           // Bullish OB nearby
-        bool c5fvg = m_fvg->IsPriceInBullishFVG(bid);            // Bullish FVG nearby
-        bool c6 = m_liq->GetPoolStrength(bid, true) > 5;         // Liquidity confluence
+   int ClampConfidence(const int value) const
+     {
+      if(value<0) return 0;
+      if(value>100) return 100;
+      return value;
+     }
 
-        sig.pdBiasConfirmed = c1;
-        sig.kzConfirmed     = c3;
-        sig.bosConfirmed    = c4;
-        sig.obConfirmed     = c5ob;
-        sig.fvgConfirmed    = c5fvg;
-        sig.liqConfirmed    = c6;
+   int RuleScore(const bool r1,const bool r2,const bool r3,const bool r4,const bool r5,const bool r6) const
+     {
+      const int passed=(r1?1:0)+(r2?1:0)+(r3?1:0)+(r4?1:0)+(r5?1:0)+(r6?1:0);
+      return passed*10;
+     }
 
-        return c1 && c2 && c3 && c4 && c5ob && c5fvg && c6;
-    }
-
-    // Check all 6 conditions for SELL
-    bool CheckSellConditions(double ask, SSignal &sig) {
-        bool c1 = m_pd->GetDailyBias() == PD_BEARISH;            // Daily bias bearish
-        bool c2 = m_pd->IsInPremiumZone(ask);                    // Price in premium
-        bool c3 = m_kz->IsKillZoneActive();                     // Kill zone active
-        bool c4 = m_struct->GetState() == STRUCTURE_BEARISH &&  // Structure bearish
-                  m_struct->GetLastEvent() == EVENT_BEARISH_BOS;
-        bool c5ob = m_ob->IsPriceInBearishOBZone(ask);           // Bearish OB nearby
-        bool c5fvg = m_fvg->IsPriceInBearishFVG(ask);            // Bearish FVG nearby
-        bool c6 = m_liq->GetPoolStrength(ask, false) > 5;       // Liquidity confluence
-
-        sig.pdBiasConfirmed = c1;
-        sig.kzConfirmed     = c3;
-        sig.bosConfirmed    = c4;
-        sig.obConfirmed     = c5ob;
-        sig.fvgConfirmed    = c5fvg;
-        sig.liqConfirmed    = c6;
-
-        return c1 && c2 && c3 && c4 && c5ob && c5fvg && c6;
-    }
-
-    // Calculate composite confidence score
-    int CalcConfidence(bool conditions[], int size, bool bullish) {
-        int passed = 0;
-        for(int i = 0; i < size; i++)
-            if(conditions[i]) passed++;
-
-        // Base score from conditions passed (6 conditions = 100%)
-        int base = (int)((double)passed / size * 60);
-
-        // Bonus: FVG confidence
-        int fvgConf = m_fvg->GetFVGConfidence(bullish ? FVG_BULL : FVG_BEAR);
-        int fvgBonus = (int)((double)fvgConf / 100.0 * 20);
-
-        // Bonus: Kill zone probability
-        double kzProb = m_kz->GetSessionProbability();
-        int kzBonus = (int)(kzProb * 10);
-
-        // Bonus: OB efficiency
-        int obBonus = 0;
-        SOrderBlock ob;
-        if(bullish) {
-            if(m_ob->GetNearestBullishOB(SymbolInfoDouble(m_symbol, SYMBOL_BID), ob))
-                obBonus = (int)(ob.efficiency * 10);
-        } else {
-            if(m_ob->GetNearestBearishOB(SymbolInfoDouble(m_symbol, SYMBOL_ASK), ob))
-                obBonus = (int)(ob.efficiency * 10);
+   int BoostScore(const bool bullish,const double price) const
+     {
+      int score=0;
+      if(m_fvg!=NULL)
+         score+=(bullish ? m_fvg->GetFVGConfidence(FVG_BULL) : m_fvg->GetFVGConfidence(FVG_BEAR))/5;
+      if(m_kz!=NULL)
+         score+=(int)(m_kz->GetSessionProbability()*10.0);
+      if(m_liq!=NULL)
+         score+=MathMin(10,m_liq->GetPoolStrength(price,bullish));
+      if(m_ob!=NULL)
+        {
+         SOrderBlock ob;
+         if(bullish && m_ob->GetNearestBullishOB(price,ob)) score+=(int)(ob.efficiency*10.0);
+         if(!bullish && m_ob->GetNearestBearishOB(price,ob)) score+=(int)(ob.efficiency*10.0);
         }
+      return score;
+     }
 
-        return MathMin(base + fvgBonus + kzBonus + obBonus, 100);
-    }
+   double StopBuffer() const
+     {
+      if(m_symbol=="") return 0.0;
+      return SymbolInfoDouble(m_symbol,SYMBOL_POINT)*20.0;
+     }
 
 public:
-    CSignalGenerator() {
-        m_minConfidence = 60;
-        m_execTf = PERIOD_M5;
-    }
-
-    // Inject module dependencies
-    void Init(
-        string symbol,
-        CMarketStructure *structure,
-        COrderBlocks *ob,
-        CFairValueGap *fvg,
-        CLiquidityPools *liq,
-        CKillZones *kz,
-        CPDArray *pd,
-        CRiskManager *rm,
-        ENUM_TIMEFRAMES execTf = PERIOD_M5
-    ) {
-        m_symbol = symbol;
-        m_struct = structure;
-        m_ob     = ob;
-        m_fvg    = fvg;
-        m_liq    = liq;
-        m_kz     = kz;
-        m_pd     = pd;
-        m_rm     = rm;
-        m_execTf = execTf;
-    }
-
-    // Main signal check — call every tick or on bar close
-    SSignal CheckSignals() {
-        SSignal sig;
-        sig.direction = SIGNAL_NONE;
-        sig.confidence = 0;
-        sig.entryPrice = 0;
-        sig.stopLoss = 0;
-        sig.takeProfit = 0;
-        sig.reason = "";
-
-        double bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
-        double ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
-
-        // Step 1: Risk check
-        if(!m_rm->CanOpenTrade()) {
-            sig.reason = "Risk manager: trading halted or max losses reached";
-            return sig;
+               CSignalGenerator()
+        {
+         m_struct=NULL;
+         m_ob=NULL;
+         m_fvg=NULL;
+         m_liq=NULL;
+         m_kz=NULL;
+         m_pd=NULL;
+         m_rm=NULL;
+         m_symbol="";
+         m_execTf=PERIOD_M5;
+         m_minConfidence=60;
         }
 
-        // Step 2: Kill Zone check (fast filter — discard outside KZ)
-        if(!m_kz->IsKillZoneActive()) {
-            sig.reason = "Outside Kill Zone — no trade";
-            return sig;
+   void Init(const string symbol,CMarketStructure *structure,COrderBlocks *ob,CFairValueGap *fvg,CLiquidityPools *liq,CKillZones *kz,CPDArray *pd,CRiskManager *rm,const ENUM_TIMEFRAMES execTf=PERIOD_M5)
+     {
+      m_symbol=symbol;
+      m_struct=structure;
+      m_ob=ob;
+      m_fvg=fvg;
+      m_liq=liq;
+      m_kz=kz;
+      m_pd=pd;
+      m_rm=rm;
+      m_execTf=execTf;
+     }
+
+   SSignal CheckSignals()
+     {
+      SSignal sig;
+      sig.direction=SIGNAL_NONE;
+      sig.confidence=0;
+      sig.entryPrice=0.0;
+      sig.stopLoss=0.0;
+      sig.takeProfit=0.0;
+      sig.rrRatio=0.0;
+      sig.obConfirmed=false;
+      sig.fvgConfirmed=false;
+      sig.liqConfirmed=false;
+      sig.kzConfirmed=false;
+      sig.bosConfirmed=false;
+      sig.pdBiasConfirmed=false;
+      sig.riskConfirmed=false;
+      sig.reason="Conditions not met";
+
+      const double bid=SymbolInfoDouble(m_symbol,SYMBOL_BID);
+      const double ask=SymbolInfoDouble(m_symbol,SYMBOL_ASK);
+      const double price=(bid+ask)*0.5;
+
+      if(m_rm==NULL || !m_rm->CanOpenTrade())
+        {
+         sig.reason="Risk manager blocked trading";
+         return sig;
+        }
+      sig.riskConfirmed=true;
+
+      if(m_kz==NULL || !m_kz->IsKillZoneTrue())
+        {
+         sig.reason="Outside kill zone";
+         return sig;
+        }
+      sig.kzConfirmed=true;
+
+      if(m_pd==NULL || m_pd->GetDailyBias()==PD_NEUTRAL)
+        {
+         sig.reason="No daily bias";
+         return sig;
         }
 
-        // Step 3: Daily bias check
-        ENUM_PD_STATE bias = m_pd->GetDailyBias();
-        if(bias == PD_NEUTRAL) {
-            sig.reason = "No daily bias established";
-            return sig;
+      const bool buyR1=BuyRule1();
+      const bool buyR2=BuyRule2(price);
+      const bool buyR3=BuyRule3();
+      const bool buyR4=BuyRule4();
+      const bool buyR5=BuyRule5(price);
+      const bool buyR6=BuyRule6(price);
+      const bool sellR1=SellRule1();
+      const bool sellR2=SellRule2(price);
+      const bool sellR3=SellRule3();
+      const bool sellR4=SellRule4();
+      const bool sellR5=SellRule5(price);
+      const bool sellR6=SellRule6(price);
+
+      if(buyR1 && buyR2 && buyR3 && buyR4 && buyR5 && buyR6)
+        {
+         sig.direction=SIGNAL_BUY;
+         sig.entryPrice=ask;
+         sig.obConfirmed=(m_ob!=NULL && m_ob->IsPriceInBullishOBZone(price));
+         sig.fvgConfirmed=(m_fvg!=NULL && m_fvg->IsPriceInBullishFVG(price));
+         sig.liqConfirmed=buyR6;
+         sig.bosConfirmed=buyR4;
+         sig.pdBiasConfirmed=buyR1;
+         const double swingLow=(m_struct!=NULL ? m_struct->GetSwingLow() : 0.0);
+         const double fallbackSL=(m_fvg!=NULL ? (m_fvg->IsPriceInBullishFVG(price) ? price-StopBuffer()*2.0 : price-StopBuffer()*3.0) : price-StopBuffer()*3.0);
+         sig.stopLoss=(swingLow>0.0 ? MathMin(swingLow-StopBuffer(),fallbackSL) : fallbackSL);
+         const double riskPips=MathAbs(sig.entryPrice-sig.stopLoss)/(SymbolInfoDouble(m_symbol,SYMBOL_POINT)*((int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==3 || (int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==5 ? 10.0 : 1.0));
+         sig.takeProfit=m_rm->CalcTakeProfit(sig.entryPrice,(int)MathMax(1.0,riskPips),true,3.0);
+         sig.rrRatio=3.0;
+         sig.confidence=ClampConfidence(RuleScore(buyR1,buyR2,buyR3,buyR4,buyR5,buyR6)+BoostScore(true,price));
+         sig.reason="BUY: discount + kill zone + structure + OB/FVG + liquidity";
+         return sig;
         }
 
-        // Step 4: Try BUY first (price below 50%)
-        if(CheckBuyConditions(bid, sig)) {
-            sig.direction = SIGNAL_BUY;
-            sig.entryPrice = ask;
-
-            // Calculate SL: below recent swing low or FVG lower
-            double sl = bid - (iHigh(m_symbol, m_execTf, 2) - iLow(m_symbol, m_execTf, 2)) * 0.5;
-            int slPips = m_rm->CalcLotSize(sl) > 0 ? 1 : 50; // Placeholder
-            sig.stopLoss = m_rm->CalcStopLoss(bid, slPips, true);
-            sig.takeProfit = m_rm->CalcTakeProfit(bid, slPips, true, 3.0);
-            sig.rrRatio = 3.0;
-
-            sig.reason = "ICT BUY: Discount + BoS + Kill Zone + OB/FVG";
-
-            // Step 5: Confidence scoring
-            bool checks[6] = {sig.pdBiasConfirmed, sig.kzConfirmed, sig.bosConfirmed,
-                             sig.obConfirmed, sig.fvgConfirmed, sig.liqConfirmed};
-            sig.confidence = CalcConfidence(checks, 6, true);
-
-            return sig;
+      if(sellR1 && sellR2 && sellR3 && sellR4 && sellR5 && sellR6)
+        {
+         sig.direction=SIGNAL_SELL;
+         sig.entryPrice=bid;
+         sig.obConfirmed=(m_ob!=NULL && m_ob->IsPriceInBearishOBZone(price));
+         sig.fvgConfirmed=(m_fvg!=NULL && m_fvg->IsPriceInBearishFVG(price));
+         sig.liqConfirmed=sellR6;
+         sig.bosConfirmed=sellR4;
+         sig.pdBiasConfirmed=sellR1;
+         const double swingHigh=(m_struct!=NULL ? m_struct->GetSwingHigh() : 0.0);
+         const double fallbackSL=(m_fvg!=NULL ? (m_fvg->IsPriceInBearishFVG(price) ? price+StopBuffer()*2.0 : price+StopBuffer()*3.0) : price+StopBuffer()*3.0);
+         sig.stopLoss=(swingHigh>0.0 ? MathMax(swingHigh+StopBuffer(),fallbackSL) : fallbackSL);
+         const double riskPips=MathAbs(sig.stopLoss-sig.entryPrice)/(SymbolInfoDouble(m_symbol,SYMBOL_POINT)*((int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==3 || (int)SymbolInfoInteger(m_symbol,SYMBOL_DIGITS)==5 ? 10.0 : 1.0));
+         sig.takeProfit=m_rm->CalcTakeProfit(sig.entryPrice,(int)MathMax(1.0,riskPips),false,3.0);
+         sig.rrRatio=3.0;
+         sig.confidence=ClampConfidence(RuleScore(sellR1,sellR2,sellR3,sellR4,sellR5,sellR6)+BoostScore(false,price));
+         sig.reason="SELL: premium + kill zone + structure + OB/FVG + liquidity";
+         return sig;
         }
 
-        // Step 5: Try SELL (price above 50%)
-        if(CheckSellConditions(ask, sig)) {
-            sig.direction = SIGNAL_SELL;
-            sig.entryPrice = bid;
+      sig.obConfirmed=(buyR5 || sellR5);
+      sig.fvgConfirmed=(buyR5 || sellR5);
+      sig.liqConfirmed=(buyR6 || sellR6);
+      sig.pdBiasConfirmed=(buyR1 || sellR1);
+      sig.reason="Conditions not met";
+      sig.confidence=ClampConfidence(MathMax(RuleScore(buyR1,buyR2,buyR3,buyR4,buyR5,buyR6),RuleScore(sellR1,sellR2,sellR3,sellR4,sellR5,sellR6))/2);
+      return sig;
+     }
 
-            double sl = ask + (iHigh(m_symbol, m_execTf, 2) - iLow(m_symbol, m_execTf, 2)) * 0.5;
-            int slPips = m_rm->CalcLotSize(sl) > 0 ? 1 : 50;
-            sig.stopLoss = m_rm->CalcStopLoss(ask, slPips, false);
-            sig.takeProfit = m_rm->CalcTakeProfit(ask, slPips, false, 3.0);
-            sig.rrRatio = 3.0;
+   int GetMinConfidence() const { return m_minConfidence; }
+   void SetMinConfidence(const int conf) { m_minConfidence=MathMax(0,MathMin(100,conf)); }
+  };
 
-            sig.reason = "ICT SELL: Premium + BoS + Kill Zone + OB/FVG";
-
-            bool checks[6] = {sig.pdBiasConfirmed, sig.kzConfirmed, sig.bosConfirmed,
-                             sig.obConfirmed, sig.fvgConfirmed, sig.liqConfirmed};
-            sig.confidence = CalcConfidence(checks, 6, false);
-
-            return sig;
-        }
-
-        sig.reason = "Conditions not met — waiting for setup";
-        return sig;
-    }
-
-    // Get minimum confidence threshold
-    int GetMinConfidence() {
-        return m_minConfidence;
-    }
-
-    void SetMinConfidence(int conf) {
-        m_minConfidence = conf;
-    }
-};
-
-#endif // ICT_SIGNAL_GENERATOR_MQH
-//+------------------------------------------------------------------+
-//| END: ICT_SIGNAL_GENERATOR_MQH                                     |
-//+------------------------------------------------------------------+
+#endif

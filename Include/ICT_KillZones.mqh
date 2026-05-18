@@ -1,263 +1,258 @@
-//+------------------------------------------------------------------+
-//|  ICT Kill Zones Module                                            |
-//|  File: ICT_KillZones.mqh                                          |
-//|  Author: Malibongwe Ndhlovu                                       |
-//|  Supervisor: Ben JARVIS AI                                        |
-//|  Date: 2026-05-17                                                 |
-//+------------------------------------------------------------------+
-
 #ifndef ICT_KILL_ZONES_MQH
 #define ICT_KILL_ZONES_MQH
 
-//+------------------------------------------------------------------+
-//| ENUM: Session Type                                                |
-//+------------------------------------------------------------------+
-enum ENUM_SESSION {
-    SESSION_NONE,
-    SESSION_LONDON,     // 03:00-05:00 NY = 10:00-12:00 SAST
-    SESSION_NY_OPEN,    // 07:00-10:00 NY = 14:00-17:00 SAST
-    SESSION_LONDON_CLOSE, // 08:00-10:00 NY = 15:00-17:00 SAST
-    SESSION_NY_CLOSE    // 15:00-17:00 NY = 22:00-00:00 SAST
-};
+enum ENUM_SESSION
+  {
+   SESSION_NONE=0,
+   SESSION_LONDON=1,
+   SESSION_NY_OPEN=2,
+   SESSION_LONDON_CLOSE=3,
+   SESSION_NY_CLOSE=4
+  };
 
-//+------------------------------------------------------------------+
-//| ENUM: Kill Zone State                                             |
-//+------------------------------------------------------------------+
-enum ENUM_KZ_STATE {
-    KZ_INACTIVE,        // Outside kill zone
-    KZ_ACTIVE,          // Inside kill zone, high probability
-    KZ_FADE,            // Kill zone but conditions not favorable
-    KZ_CLOSING          // Last 15 min of kill zone, take profits
-};
+enum ENUM_KZ_STATE
+  {
+   KZ_INACTIVE=0,
+   KZ_ACTIVE=1,
+   KZ_FADE=2,
+   KZ_CLOSING=3
+  };
 
-//+------------------------------------------------------------------+
-//| STRUCT: Session Window                                            |
-//+------------------------------------------------------------------+
-struct SSessionWindow {
-    ENUM_SESSION session;
-    int          startHourNY;    // Start hour in NY time (0-23)
-    int          endHourNY;      // End hour in NY time (0-23)
-    bool         isActive;
-    double       probability;    // Historical win rate in this session
-    int          tradesInSession; // Session trade count
-    int          winsInSession;  // Session wins
-};
+struct SSessionWindow
+  {
+   ENUM_SESSION session;
+   int startHourNY;
+   int endHourNY;
+   bool isActive;
+   double probability;
+   int tradesInSession;
+   int winsInSession;
+  };
 
-//+------------------------------------------------------------------+
-//| CLASS: CKillZones                                                 |
-//+------------------------------------------------------------------+
-class CKillZones {
+class CKillZones
+  {
 private:
-    SSessionWindow m_sessions[];
-    datetime       m_lastTradeTime;
-    bool           m_tradeTakenInSession;
-    int            m_maxTradesPerSession;
+   SSessionWindow m_sessions[];
+   int            m_utcOffsetHours;
+   int            m_nyOffsetHours;
+   int            m_sessionOffsetMinutes;
+   bool           m_tradeTakenInSession;
+   ENUM_SESSION   m_activeSession;
+   ENUM_KZ_STATE  m_state;
+   datetime       m_lastSessionDate;
 
-    // Convert server time to NY time
-    datetime ServerToNYTime(datetime serverTime) {
-        // NYC is UTC-4 (EDT) or UTC-5 (EST) depending on DST
-        // MQL5: _TimeGMT is the server's GMT time
-        datetime nyTime = serverTime - 5 * 3600; // Approximate UTC-5 (EST)
-        MqlDateTime dt;
-        TimeToStruct(nyTime, dt);
-        return nyTime;
-    }
+   int NormalizeHour(const int hour) const
+     {
+      int h=hour%24;
+      if(h<0) h+=24;
+      return h;
+     }
 
-    // Check if NY time is within session range
-    bool IsInSessionRange(int nyHour, int startHour, int endHour) {
-        if(startHour < endHour)
-            return nyHour >= startHour && nyHour < endHour;
-        else
-            return nyHour >= startHour || nyHour < endHour; // Wraps midnight
-    }
+   datetime CurrentShiftedTime(const int offsetHours,const int offsetMinutes) const
+     {
+      return TimeGMT()+offsetHours*3600+offsetMinutes*60;
+     }
 
-    // Get current session
-    ENUM_SESSION GetCurrentSession(int nyHour) {
-        if(IsInSessionRange(nyHour, 3, 5))  return SESSION_LONDON;
-        if(IsInSessionRange(nyHour, 7, 10)) return SESSION_NY_OPEN;
-        if(IsInSessionRange(nyHour, 8, 10))  return SESSION_LONDON_CLOSE;
-        if(IsInSessionRange(nyHour, 15, 17)) return SESSION_NY_CLOSE;
-        return SESSION_NONE;
-    }
+   int HourFromShifted(const int offsetHours,const int offsetMinutes) const
+     {
+      MqlDateTime dt;
+      TimeToStruct(CurrentShiftedTime(offsetHours,offsetMinutes),dt);
+      return dt.hour;
+     }
 
-    // Calculate session probability based on historical performance
-    double CalculateSessionProbability(ENUM_SESSION session) {
-        for(int i = 0; i < ArraySize(m_sessions); i++) {
-            if(m_sessions[i].session == session) {
-                if(m_sessions[i].tradesInSession == 0) return 0.5; // Default 50%
-                return (double)m_sessions[i].winsInSession / m_sessions[i].tradesInSession;
-            }
-        }
-        return 0.5;
-    }
+   bool InRange(const int hour,const int startHour,const int endHour) const
+     {
+      if(startHour<endHour)
+         return hour>=startHour && hour<endHour;
+      return hour>=startHour || hour<endHour;
+     }
+
+   ENUM_SESSION ResolveSession(const int nyHour) const
+     {
+      if(InRange(nyHour,3,5))   return SESSION_LONDON;
+      if(InRange(nyHour,7,10))  return SESSION_NY_OPEN;
+      if(InRange(nyHour,8,10))  return SESSION_LONDON_CLOSE;
+      if(InRange(nyHour,15,17)) return SESSION_NY_CLOSE;
+      return SESSION_NONE;
+     }
+
+   int SessionIndex(const ENUM_SESSION session) const
+     {
+      for(int i=0;i<ArraySize(m_sessions);i++)
+         if(m_sessions[i].session==session) return i;
+      return -1;
+     }
+
+   double SessionWinRate(const ENUM_SESSION session) const
+     {
+      const int idx=SessionIndex(session);
+      if(idx<0) return 0.5;
+      if(m_sessions[idx].tradesInSession<=0) return m_sessions[idx].probability;
+      return (double)m_sessions[idx].winsInSession/(double)m_sessions[idx].tradesInSession;
+     }
 
 public:
-    CKillZones() {
-        m_maxTradesPerSession = 2;
-        m_tradeTakenInSession = false;
-        m_lastTradeTime = 0;
-        ArrayResize(m_sessions, 4);
-
-        // London Open — 03:00-05:00 NY
-        m_sessions[0].session         = SESSION_LONDON;
-        m_sessions[0].startHourNY      = 3;
-        m_sessions[0].endHourNY        = 5;
-        m_sessions[0].probability      = 0.55;
-        m_sessions[0].tradesInSession  = 0;
-        m_sessions[0].winsInSession     = 0;
-
-        // NY Open — 07:00-10:00 NY (highest probability)
-        m_sessions[1].session         = SESSION_NY_OPEN;
-        m_sessions[1].startHourNY     = 7;
-        m_sessions[1].endHourNY        = 10;
-        m_sessions[1].probability      = 0.60;
-        m_sessions[1].tradesInSession  = 0;
-        m_sessions[1].winsInSession    = 0;
-
-        // London Close — 08:00-10:00 NY
-        m_sessions[2].session         = SESSION_LONDON_CLOSE;
-        m_sessions[2].startHourNY     = 8;
-        m_sessions[2].endHourNY        = 10;
-        m_sessions[2].probability      = 0.50;
-        m_sessions[2].tradesInSession  = 0;
-        m_sessions[2].winsInSession    = 0;
-
-        // NY Close — 15:00-17:00 NY
-        m_sessions[3].session         = SESSION_NY_CLOSE;
-        m_sessions[3].startHourNY     = 15;
-        m_sessions[3].endHourNY        = 17;
-        m_sessions[3].probability      = 0.48;
-        m_sessions[3].tradesInSession  = 0;
-        m_sessions[3].winsInSession     = 0;
-    }
-
-    // Refresh — call every tick to update session state
-    void Refresh() {
-        datetime now = TimeCurrent();
-        MqlDateTime dt;
-        TimeToStruct(now, dt);
-
-        // Get NY hour (simplified — actual implementation would use Holiday lib)
-        int nyHour = (dt.hour + 20) % 24; // SAST (UTC+2) = UTC+2, NYC = UTC-5 → offset = 7 hours, but we simplify
-
-        ENUM_SESSION currentSession = GetCurrentSession(dt.hour);
-        ENUM_KZ_STATE state = KZ_INACTIVE;
-
-        if(currentSession != SESSION_NONE) {
-            // Check if within last 15 min (fade/kill zone closing)
-            int hour = dt.hour;
-            for(int i = 0; i < ArraySize(m_sessions); i++) {
-                if(m_sessions[i].session == currentSession) {
-                    if(dt.hour == m_sessions[i].endHourNY - 1 && dt.min >= 45)
-                        state = KZ_CLOSING;
-                    else
-                        state = KZ_ACTIVE;
-                    m_sessions[i].isActive = true;
-                    break;
-                }
-            }
+               CKillZones()
+        {
+         m_utcOffsetHours=2;
+         m_nyOffsetHours=-5;
+         m_sessionOffsetMinutes=0;
+         m_tradeTakenInSession=false;
+         m_activeSession=SESSION_NONE;
+         m_state=KZ_INACTIVE;
+         m_lastSessionDate=0;
+         ArrayResize(m_sessions,4);
+         m_sessions[0].session=SESSION_LONDON;       m_sessions[0].startHourNY=3;  m_sessions[0].endHourNY=5;  m_sessions[0].probability=0.55;
+         m_sessions[1].session=SESSION_NY_OPEN;       m_sessions[1].startHourNY=7;  m_sessions[1].endHourNY=10; m_sessions[1].probability=0.60;
+         m_sessions[2].session=SESSION_LONDON_CLOSE;   m_sessions[2].startHourNY=8;  m_sessions[2].endHourNY=10; m_sessions[2].probability=0.50;
+         m_sessions[3].session=SESSION_NY_CLOSE;       m_sessions[3].startHourNY=15; m_sessions[3].endHourNY=17; m_sessions[3].probability=0.48;
+         for(int i=0;i<ArraySize(m_sessions);i++)
+           {
+            m_sessions[i].isActive=false;
+            m_sessions[i].tradesInSession=0;
+            m_sessions[i].winsInSession=0;
+           }
         }
 
-        // Reset if new session
-        if(currentSession == SESSION_NONE)
-            m_tradeTakenInSession = false;
-    }
+   void Init(const int serverUtcOffsetHours=2,const int nyUtcOffsetHours=-5,const int sessionOffsetMinutes=0)
+     {
+      m_utcOffsetHours=serverUtcOffsetHours;
+      m_nyOffsetHours=nyUtcOffsetHours;
+      m_sessionOffsetMinutes=sessionOffsetMinutes;
+     }
 
-    // Is kill zone active right now?
-    bool IsKillZoneActive() {
-        datetime now = TimeCurrent();
-        MqlDateTime dt;
-        TimeToStruct(now, dt);
+   void Refresh()
+     {
+      MqlDateTime dt;
+      TimeToStruct(TimeCurrent(),dt);
+      const int nyHour=HourFromShifted(m_nyOffsetHours,m_sessionOffsetMinutes);
+      const ENUM_SESSION session=ResolveSession(nyHour);
+      m_activeSession=session;
+      m_state=KZ_INACTIVE;
 
-        ENUM_SESSION sess = GetCurrentSession(dt.hour);
-        return sess != SESSION_NONE;
-    }
+      for(int i=0;i<ArraySize(m_sessions);i++)
+         m_sessions[i].isActive=(m_sessions[i].session==session);
 
-    // Get current active session
-    ENUM_SESSION GetActiveSession() {
-        datetime now = TimeCurrent();
-        MqlDateTime dt;
-        TimeToStruct(now, dt);
-        return GetCurrentSession(dt.hour);
-    }
-
-    // Get probability of current session
-    double GetSessionProbability() {
-        ENUM_SESSION sess = GetActiveSession();
-        return CalculateSessionProbability(sess);
-    }
-
-    // Can we take a trade in this session?
-    bool CanTradeInSession() {
-        return IsKillZoneActive() && !m_tradeTakenInSession;
-    }
-
-    // Mark trade as taken in this session
-    void MarkTradeTaken() {
-        m_tradeTakenInSession = true;
-        m_lastTradeTime = TimeCurrent();
-
-        ENUM_SESSION sess = GetActiveSession();
-        for(int i = 0; i < ArraySize(m_sessions); i++) {
-            if(m_sessions[i].session == sess) {
-                m_sessions[i].tradesInSession++;
-                break;
-            }
+      if(session!=SESSION_NONE)
+        {
+         const int idx=SessionIndex(session);
+         if(idx>=0)
+           {
+            const int endHour=m_sessions[idx].endHourNY;
+            const int startHour=m_sessions[idx].startHourNY;
+            if(InRange(nyHour,endHour-1,endHour) && dt.min>=45)
+               m_state=KZ_CLOSING;
+            else if(InRange(nyHour,startHour,endHour))
+               m_state=KZ_ACTIVE;
+            else
+               m_state=KZ_FADE;
+           }
         }
-    }
-
-    // Record session win/loss
-    void RecordSessionResult(bool isWin) {
-        ENUM_SESSION sess = GetActiveSession();
-        for(int i = 0; i < ArraySize(m_sessions); i++) {
-            if(m_sessions[i].session == sess) {
-                if(isWin) m_sessions[i].winsInSession++;
-                m_tradeTakenInSession = false; // Reset for next session
-                break;
-            }
+      else
+        {
+         m_tradeTakenInSession=false;
         }
-    }
 
-    // Get best session for a given bias
-    ENUM_SESSION GetBestSessionForBias(bool isBullish) {
-        double bestProb = 0;
-        ENUM_SESSION best = SESSION_NY_OPEN;
-
-        for(int i = 0; i < ArraySize(m_sessions); i++) {
-            double prob = CalculateSessionProbability(m_sessions[i].session);
-            if(prob > bestProb) {
-                bestProb = prob;
-                best = m_sessions[i].session;
-            }
+      const datetime todayKey=(datetime)StringToTime(StringFormat("%04d.%02d.%02d 00:00:00",dt.year,dt.mon,dt.day));
+      if(todayKey!=m_lastSessionDate)
+        {
+         m_lastSessionDate=todayKey;
+         m_tradeTakenInSession=false;
         }
-        return best;
-    }
+     }
 
-    // Get time until next kill zone (in seconds)
-    int SecondsUntilNextKillZone() {
-        datetime now = TimeCurrent();
-        MqlDateTime dt;
-        TimeToStruct(now, dt);
+   bool IsKillZoneActive() const
+     {
+      return m_activeSession!=SESSION_NONE;
+     }
 
-        // Check London Open (next day if before 3am NY)
-        if(dt.hour < 3) {
-            return (3 - dt.hour - 1) * 3600 + (60 - dt.min) * 60;
+   bool IsKillZoneTrue() const
+     {
+      return m_state==KZ_ACTIVE || m_state==KZ_CLOSING;
+     }
+
+   ENUM_SESSION GetActiveSession() const
+     {
+      return m_activeSession;
+     }
+
+   ENUM_KZ_STATE GetState() const
+     {
+      return m_state;
+     }
+
+   double GetSessionProbability() const
+     {
+      return SessionWinRate(m_activeSession);
+     }
+
+   bool CanTradeInSession() const
+     {
+      return IsKillZoneTrue() && !m_tradeTakenInSession;
+     }
+
+   void MarkTradeTaken()
+     {
+      m_tradeTakenInSession=true;
+      const int idx=SessionIndex(m_activeSession);
+      if(idx>=0) m_sessions[idx].tradesInSession++;
+     }
+
+   void RecordSessionResult(const bool isWin)
+     {
+      const int idx=SessionIndex(m_activeSession);
+      if(idx>=0)
+        {
+         if(isWin) m_sessions[idx].winsInSession++;
         }
-        return 0; // Kill zone active or within 24h
-    }
+      m_tradeTakenInSession=false;
+     }
 
-    // Reset session tracking (call at start of new trading day)
-    void ResetDailySessionTracking() {
-        for(int i = 0; i < ArraySize(m_sessions); i++) {
-            m_sessions[i].tradesInSession = 0;
-            m_sessions[i].winsInSession   = 0;
-            m_sessions[i].isActive        = false;
+   ENUM_SESSION GetBestSessionForBias(const bool isBullish) const
+     {
+      double bestScore=-1.0;
+      ENUM_SESSION best=SESSION_NY_OPEN;
+      for(int i=0;i<ArraySize(m_sessions);i++)
+        {
+         double score=SessionWinRate(m_sessions[i].session);
+         if(isBullish && m_sessions[i].session==SESSION_NY_OPEN) score+=0.05;
+         if(!isBullish && m_sessions[i].session==SESSION_LONDON_CLOSE) score+=0.03;
+         if(score>bestScore)
+           {
+            bestScore=score;
+            best=m_sessions[i].session;
+           }
         }
-        m_tradeTakenInSession = false;
-    }
-};
+      return best;
+     }
 
-#endif // ICT_KILL_ZONES_MQH
-//+------------------------------------------------------------------+
-//| END: ICT_KillZones.mqh                                           |
-//+------------------------------------------------------------------+
+   int SecondsUntilNextKillZone() const
+     {
+      const int nyHour=HourFromShifted(m_nyOffsetHours,m_sessionOffsetMinutes);
+      const int nyMinute=TimeMinute(CurrentShiftedTime(m_nyOffsetHours,m_sessionOffsetMinutes));
+      const int startHours[4]={3,7,8,15};
+      int best=24*3600;
+      for(int i=0;i<4;i++)
+        {
+         int target=(startHours[i]*3600)-(nyHour*3600+nyMinute*60);
+         if(target<0) target+=24*3600;
+         if(target<best) best=target;
+        }
+      return best;
+     }
+
+   void ResetDailySessionTracking()
+     {
+      for(int i=0;i<ArraySize(m_sessions);i++)
+        {
+         m_sessions[i].tradesInSession=0;
+         m_sessions[i].winsInSession=0;
+         m_sessions[i].isActive=false;
+        }
+      m_tradeTakenInSession=false;
+      m_activeSession=SESSION_NONE;
+      m_state=KZ_INACTIVE;
+     }
+  };
+
+#endif
