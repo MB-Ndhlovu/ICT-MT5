@@ -1,6 +1,6 @@
 #property copyright "Malibongwe Ndhlovu"
 #property link      "https://github.com/MB-Ndhlovu/ICT-MT5"
-#property version   "1.01"
+#property version   "1.02"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -77,6 +77,7 @@ int OnInit()
    g_sig.SetMinConfidence(ICT_MinConfidence);
    g_sig.SetRequireKillZone(ICT_UseKillZoneOnly);
    g_lastTradeDay=CurrentDayKey();
+   g_kz.SetSymbol(ICT_Symbol);
    return(INIT_SUCCEEDED);
   }
 
