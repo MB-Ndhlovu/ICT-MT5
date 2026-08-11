@@ -8,7 +8,7 @@
 
 ## Overview
 
-ICT-MT5 is a modular Expert Advisor that converts ICT / Smart Money Concepts into a rule-based MQL5 trading engine for MetaTrader 5. The project is built to be readable, testable, and portfolio-ready rather than flashy. No magic. Just structure, rules, and risk control.
+ICT-MT5 is a modular Expert Advisor that converts ICT / Smart Money Concepts into a rule-based MQL5 trading engine for MetaTrader 5. The project is built to be readable, testable, . Just structure, rules, and risk control.
 
 The EA combines:
 - market structure detection
